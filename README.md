@@ -107,7 +107,9 @@ Model fit was assessed using simulation-based residual diagnostics (DHARMa).
 
 If you use this data or analysis code, please cite the main paper:
 
+```
 [BibTeX citation will be added upon publication]
+```
 
 ## License
 
