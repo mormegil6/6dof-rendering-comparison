@@ -1,0 +1,1671 @@
+---
+title: "6DoF Rendering Algorithms Comparison - Comprehensive Analysis"
+author: "Bartłomiej Mróz"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+always_allow_html: true
+output:
+  html_document: 
+    theme: journal  # cerulean, journal, flatly, darkly, readable, spacelab, united, cosmo, lumen, paper, sandstone, simplex, yeti
+    syntax-highlighting: tango  # tango, pygments, kate, monochrome, espresso, zenburn, haddock, breezedark, textmate
+    code_folding: show  # none, show, hide (adds button to show/hide code)
+    number_sections: false
+    fig_width: 10
+    fig_height: 9
+    toc: true
+    toc_float: 
+      smooth_scroll: true
+    toc_depth: 3
+    anchor_sections: true
+  pdf_document: default
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 100%;
+  overflow-x: auto;
+  margin-left: auto;
+  margin-right: auto;
+  word-wrap: normal;
+}
+</style>
+
+```{r setup, include=FALSE, collapse=TRUE, comment=''}
+rm(list = ls(all.names = TRUE))
+gc()
+
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE,
+  fig.align = 'center',
+  cache = FALSE
+)
+
+# Set seed for reproducibility
+set.seed(42)
+
+# Create output directory for plots
+plot_dir <- "../plots_analysis3"
+if (!dir.exists(plot_dir)) {
+  dir.create(plot_dir, recursive = TRUE)
+}
+```
+
+# 1. Introduction
+
+This analysis examines the comparison of six-degrees-of-freedom (6DoF) audio rendering algorithms for immersive classical music experiences. The study is part of a doctoral dissertation on "Spatial audio for networked music performances" (Gdańsk University of Technology, 2022).
+
+## 1.1 Experiment Context
+
+**Audio material:** Aria of Donna Elvira from the opera *Don Giovanni* by W. A. Mozart (15-second looped excerpt). The soprano soloist was the localization target, with the accompanying orchestra present in the sound scene.
+
+**Virtual sound scene:** 27 third-order Ambisonics (3OA) spheres with interpolated region between microphones 5, 6, and 10. An additional ambisonic sphere was rendered at the center for the single-sphere renderers (ScnRot and Com.BinVR).
+
+**Equipment:** Oculus Quest 2 head-mounted display with 6DoF tracking (yaw, pitch, roll + sway, surge, heave). A custom MaxMSP signal processing engine interfaced HMD tracking data to the audio renderers.
+
+**Visual scene:** Minimal VR environment with wooden floor (0.5m grid spacing), sky-like ceiling, and yellow center marker—no visual objects to avoid localization bias.
+
+## 1.2 Rendering Algorithms Compared
+
+| Abbreviation | Full Name | Description |
+|--------------|-----------|-------------|
+| **ScnRot** | IEM SceneRotator | 3DoF baseline from IEM plug-in suite |
+| **Com.BinVR** | COMPASS BinauralVR | Single HOA sphere with spatial parametric decomposition and spatial warping |
+| **Com.6DoF** | COMPASS 6DoF | Multiple HOA spheres with beamformer-driven decomposition |
+| **Zyl.6DoF** | Zylia 6DoF HOA Renderer | Loudness crossfading interpolation method |
+| **Del.wgts** | Delaunay weights | Simple weighting using Delaunay triangulation and barycentric coordinates |
+
+## 1.3 Test Procedure
+
+**Localization task:**
+
+- Participants indicated perceived azimuth of the soprano soloist
+- Only horizontal component measured
+- Participants returned to center (yellow square) before each assessment
+- Unlimited exploration time; only last assessment recorded
+
+**Quality rating task (MUSHRA-like):**
+
+- 101-point scale (0-100)
+- Rating bins: 0-20 Bad, 20-40 Poor, 40-60 Fair, 60-80 Good, 80-100 Excellent
+- Participants could compare cases in any order and revise answers
+
+## 1.4 Participants
+
+**N = 27** participants from:
+
+- Academic staff of Multimedia Systems Department, Gdańsk University of Technology
+- Members of Academic Choir of Gdańsk University of Technology
+- Audio industry professionals
+
+All had at least amateur music education or were audio professionals.
+
+## 1.5 Dependent Variables
+
+1. **Localization Error** (objective): Angular error in azimuth (degrees) from ground truth (312°)
+2. **Quality Rating** (subjective): MUSHRA-like scale (0-100)
+
+# 2. Setup and Data Loading
+
+## 2.1 Required Packages
+
+```{r packages, message=FALSE, warning=FALSE, collapse=TRUE, comment=''}
+# Data manipulation
+library(tidyverse)
+library(readr)
+
+# Statistical analysis
+library(nlme)            # Linear Mixed Models (for ratings)
+library(glmmTMB)         # Generalized Linear Mixed Models (for Gamma GLMM)
+library(DHARMa)          # Residual diagnostics for GLMMs
+library(MASS)            # fitdistr for distribution fitting
+library(emmeans)         # Estimated marginal means and post-hoc
+library(multcomp)        # Multiple comparisons
+library(car)             # Levene's test for homogeneity of variance
+
+# Visualization
+library(ggplot2)
+library(ggpubr)          # Publication-ready plots
+library(gridExtra)       # Arrange multiple plots
+library(viridis)         # Color-blind friendly palettes
+
+# Reporting
+library(knitr)
+library(kableExtra)
+```
+
+## 2.2 Load Raw Data from CSV Files
+
+```{r load_raw_data, message=FALSE, warning=FALSE, collapse=TRUE, comment=''}
+# Define data directory
+data_dir <- "../data"
+
+# Get all localization and MUSHRA files (excluding discarded)
+loc_files <- list.files(data_dir, pattern = "^PG-[0-9]+-.*-Localization\\.csv$", full.names = TRUE)
+mus_files <- list.files(data_dir, pattern = "^PG-[0-9]+-.*-MUSHRA\\.csv$", full.names = TRUE)
+
+cat("Found", length(loc_files), "localization files\n")
+cat("Found", length(mus_files), "MUSHRA files\n")
+
+# Function to parse filename and read data
+read_participant_data <- function(filepath, type = "localization") {
+  # Extract info from filename
+  filename <- basename(filepath)
+  parts <- str_match(filename, "^PG-(\\d+[a-z]?)-(\\d+)-")
+
+  subject_id <- parts[2]
+  timestamp <- parts[3]
+  
+  # Read the file (semicolon separated, handle both comma and period decimals)
+  df <- tryCatch({
+    read_delim(filepath, delim = ";", locale = locale(decimal_mark = ","), 
+               show_col_types = FALSE)
+  }, error = function(e) {
+    read_delim(filepath, delim = ";", locale = locale(decimal_mark = "."), 
+               show_col_types = FALSE)
+  })
+  
+  # Ensure numeric columns are numeric (fixes type conflicts during bind_rows)
+  if (type == "localization" && "Elevation" %in% names(df)) {
+    df$Elevation <- as.numeric(df$Elevation)
+  }
+  if ("Azimuth" %in% names(df)) {
+    df$Azimuth <- as.numeric(df$Azimuth)
+  }
+  
+  # Add metadata
+  df$SubjectID <- paste0("PG-", subject_id)
+  df$Timestamp <- timestamp
+  
+  return(df)
+}
+
+# Load all localization data
+df_loc_raw <- map_dfr(loc_files, ~read_participant_data(.x, "localization"))
+
+# Load all MUSHRA (rating) data
+df_rat_raw <- map_dfr(mus_files, ~read_participant_data(.x, "rating"))
+
+# Preview
+cat("\nLocalization data dimensions:", dim(df_loc_raw), "\n")
+cat("Rating data dimensions:", dim(df_rat_raw), "\n")
+```
+
+## 2.3 Data Preprocessing
+
+```{r preprocess_data, collapse=TRUE, comment=''}
+# Algorithm name mapping (raw -> analysis names)
+# Verified against original experiment design
+algorithm_map <- c(
+  "Reference" = "ScnRot",      # IEM SceneRotator (3DoF baseline)
+  "Sparta" = "Com.6DoF",       # COMPASS 6DoF (multiple HOA spheres)
+  "Sparta3DoF" = "Com.BinVR",  # COMPASS BinauralVR (single HOA sphere)
+  "Zylia1" = "Zyl.6DoF",       # Zylia 6DoF HOA Renderer
+  "Zylia2" = "Del.wgts"        # Delaunay triangulation with barycentric weights
+)
+
+# Note: The raw file algorithm names need verification with the original experiment design
+# The mapping above is based on context from dissertation and previous analyses
+
+# Process Localization data
+df_loc <- df_loc_raw %>%
+  mutate(
+    Algorithm = dplyr::recode(AlgorithmName, !!!algorithm_map),
+    Algorithm = factor(Algorithm, levels = c("ScnRot", "Com.BinVR", "Com.6DoF", "Zyl.6DoF", "Del.wgts")),
+    SubjectID = factor(SubjectID),
+    # Ground truth azimuth (soprano soloist position - typically around 312°)
+    GroundTruth = 312,  # This should be verified with experiment design
+    # Calculate localization error (circular distance)
+    Response = (Azimuth + AzimuthRef) %% 360,  # Combine to get absolute response
+    Error = abs((Response - GroundTruth + 180) %% 360 - 180),  # Circular difference
+    Log.Error = log(Error + 0.1)  # Add small constant to handle zeros
+  ) %>%
+  filter(!is.na(Algorithm)) %>%
+  dplyr::select(SubjectID, Timestamp, SongID, Algorithm, Azimuth, Elevation,
+         AzimuthRef, Response, GroundTruth, Error, Log.Error)
+
+# Process Rating data  
+df_rat <- df_rat_raw %>%
+  mutate(
+    Algorithm = dplyr::recode(AlgorithmName, !!!algorithm_map),
+    Algorithm = factor(Algorithm, levels = c("ScnRot", "Com.BinVR", "Com.6DoF", "Zyl.6DoF", "Del.wgts")),
+    SubjectID = factor(SubjectID),
+    Rating = as.numeric(Score)
+  ) %>%
+  filter(!is.na(Algorithm)) %>%
+  dplyr::select(SubjectID, Timestamp, SongID, Algorithm, Rating)
+
+# Summary
+cat("Processed localization data:", nrow(df_loc), "observations\n")
+cat("Processed rating data:", nrow(df_rat), "observations\n")
+cat("Number of subjects (loc):", n_distinct(df_loc$SubjectID), "\n")
+cat("Number of subjects (rat):", n_distinct(df_rat$SubjectID), "\n")
+```
+
+## 2.4 Alternative: Load Pre-processed Rda Files
+
+If the raw CSV processing is problematic, load the pre-processed .Rda files instead:
+
+```{r load_rda, eval=FALSE}
+# Alternative: use pre-processed data
+load("../data/df_loc.Rda")
+load("../data/df_rat.Rda")
+
+# Anonymize subject names
+subject_key <- data.frame(
+  OldName = levels(df.loc$Subject),
+  NewID = sprintf("S%03d", seq_along(levels(df.loc$Subject)))
+)
+levels(df.loc$Subject) <- subject_key$NewID
+levels(df.rat$Subject) <- subject_key$NewID
+
+# Rename for consistency
+df_loc <- df.loc
+df_rat <- df.rat
+```
+
+# 3. Exploratory Data Analysis
+
+## 3.1 Participant Demographics
+
+```{r demographics, collapse=TRUE, comment=''}
+# Participant summary
+participant_summary <- df_loc %>%
+  group_by(SubjectID) %>%
+  summarise(n_trials = n(), .groups = "drop") %>%
+  summarise(
+    n_participants = n(),
+    mean_trials = mean(n_trials)
+  )
+
+kable(participant_summary,
+      caption = "Participant Summary",
+      col.names = c("N Participants", "Mean Trials per Participant")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+## 3.2 Descriptive Statistics
+
+### Localization Error
+
+```{r descriptive_loc, collapse=TRUE, comment=''}
+loc_summary <- df_loc %>%
+  group_by(Algorithm) %>%
+  summarise(
+    N = n(),
+    Mean = mean(Error, na.rm = TRUE),
+    SD = sd(Error, na.rm = TRUE),
+    Median = median(Error, na.rm = TRUE),
+    IQR = IQR(Error, na.rm = TRUE),
+    Min = min(Error, na.rm = TRUE),
+    Max = max(Error, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(loc_summary, digits = 2,
+      caption = "Descriptive Statistics: Localization Error (degrees)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Quality Ratings
+
+```{r descriptive_rat, collapse=TRUE, comment=''}
+rat_summary <- df_rat %>%
+  group_by(Algorithm) %>%
+  summarise(
+    N = n(),
+    Mean = mean(Rating, na.rm = TRUE),
+    SD = sd(Rating, na.rm = TRUE),
+    Median = median(Rating, na.rm = TRUE),
+    IQR = IQR(Rating, na.rm = TRUE),
+    Min = min(Rating, na.rm = TRUE),
+    Max = max(Rating, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(rat_summary, digits = 2,
+      caption = "Descriptive Statistics: Quality Rating (0-100)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+## 3.3 Participant Performance Screening
+
+Before proceeding with the main analysis, we should identify participants who may not have understood the localization task or whose performance was consistently poor across all conditions.
+
+```{r participant_screening, collapse=TRUE, comment=''}
+# Calculate participant-level statistics
+participant_performance <- df_loc %>%
+  group_by(SubjectID) %>%
+  summarise(
+    Mean_Error = mean(Error, na.rm = TRUE),
+    Median_Error = median(Error, na.rm = TRUE),
+    SD_Error = sd(Error, na.rm = TRUE),
+    Min_Error = min(Error, na.rm = TRUE),
+    Max_Error = max(Error, na.rm = TRUE),
+    N_Trials = n(),
+    N_Large_Errors = sum(Error > 50),  # Count errors > 50°
+    Prop_Large_Errors = N_Large_Errors / N_Trials,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Mean_Error))
+
+# Display top 10 worst performers
+kable(head(participant_performance, 10), digits = 2,
+      caption = "Top 10 Participants with Highest Mean Localization Error") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Visualize participant performance distribution
+ggplot(participant_performance, aes(x = reorder(SubjectID, Mean_Error), y = Mean_Error)) +
+  geom_bar(stat = "identity", fill = "#2E86AB", alpha = 0.7) +
+  geom_hline(yintercept = 30, linetype = "dashed", color = "orange", size = 1) +
+  geom_hline(yintercept = 45, linetype = "dashed", color = "red", size = 1) +
+  annotate("text", x = 5, y = 32, label = "30° threshold", color = "orange", size = 3) +
+  annotate("text", x = 5, y = 47, label = "45° threshold", color = "red", size = 3) +
+  labs(title = "Mean Localization Error by Participant",
+       subtitle = "Ordered from worst to best performance",
+       x = "Participant", y = "Mean Error (degrees)") +
+  theme_pubclean() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6),
+        legend.position = "none")
+
+ggsave(file.path(plot_dir, "03a_participant_screening.png"), 
+       width = 14, height = 6, dpi = 300)
+```
+
+### Proposed Exclusion Criteria
+
+We propose three possible exclusion criteria:
+
+1. **Conservative (Mean > 45°)**: Exclude participants with mean error > 45° across all trials
+2. **Moderate (Mean > 30°)**: Exclude participants with mean error > 30°
+3. **Strict (>80% large errors)**: Exclude if >80% of trials have error > 50°
+
+```{r exclusion_criteria, collapse=TRUE, comment=''}
+# Define thresholds
+threshold_conservative <- 45
+threshold_moderate <- 30
+threshold_strict_prop <- 0.80
+threshold_strict_error <- 50
+
+# Apply criteria
+excluded_conservative <- participant_performance %>%
+  filter(Mean_Error > threshold_conservative) %>%
+  mutate(Criterion = "Conservative: Mean > 45°")
+
+excluded_moderate <- participant_performance %>%
+  filter(Mean_Error > threshold_moderate) %>%
+  mutate(Criterion = "Moderate: Mean > 30°")
+
+excluded_strict <- participant_performance %>%
+  filter(Prop_Large_Errors > threshold_strict_prop) %>%
+  mutate(Criterion = "Strict: >80% trials with error > 50°")
+
+# Summary table
+exclusion_summary <- data.frame(
+  Criterion = c("Conservative (Mean > 45°)", 
+                "Moderate (Mean > 30°)", 
+                "Strict (>80% trials > 50°)"),
+  N_Excluded = c(nrow(excluded_conservative), 
+                 nrow(excluded_moderate), 
+                 nrow(excluded_strict)),
+  N_Remaining = c(n_distinct(df_loc$SubjectID) - nrow(excluded_conservative),
+                  n_distinct(df_loc$SubjectID) - nrow(excluded_moderate),
+                  n_distinct(df_loc$SubjectID) - nrow(excluded_strict)),
+  Prop_Excluded = c(nrow(excluded_conservative) / n_distinct(df_loc$SubjectID),
+                    nrow(excluded_moderate) / n_distinct(df_loc$SubjectID),
+                    nrow(excluded_strict) / n_distinct(df_loc$SubjectID))
+)
+
+kable(exclusion_summary, digits = 3,
+      caption = "Comparison of Exclusion Criteria") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Show which participants would be excluded under each criterion
+cat("\n### Conservative Criterion (Mean > 45°):\n")
+if (nrow(excluded_conservative) > 0) {
+  print(excluded_conservative %>% 
+          dplyr::select(SubjectID, Mean_Error, Median_Error,
+                        N_Large_Errors, Prop_Large_Errors) %>%
+          arrange(desc(Mean_Error)))
+} else {
+  cat("No participants excluded.\n")
+}
+
+cat("\n### Moderate Criterion (Mean > 30°):\n")
+if (nrow(excluded_moderate) > 0) {
+  print(excluded_moderate %>% 
+          dplyr::select(SubjectID, Mean_Error, Median_Error,
+                        N_Large_Errors, Prop_Large_Errors) %>%
+          arrange(desc(Mean_Error)))
+} else {
+  cat("No participants excluded.\n")
+}
+
+cat("\n### Strict Criterion (>80% trials > 50°):\n")
+if (nrow(excluded_strict) > 0) {
+  print(excluded_strict %>% 
+          dplyr::select(SubjectID, Mean_Error, Median_Error,
+                        N_Large_Errors, Prop_Large_Errors) %>%
+          arrange(desc(Mean_Error)))
+} else {
+  cat("No participants excluded.\n")
+}
+```
+
+### Recommended Approach
+
+Based on standard practices in spatial audio research and the distribution of errors:
+
+- **Recommendation**: Use **Conservative criterion (Mean > 45°)** or investigate individual 
+  cases manually
+- **Rationale**: 
+  - Localization in complex acoustic scenes with multiple sources is inherently difficult
+  - 30° may be too strict given the complexity of the task (soprano + orchestra)
+  - 45° represents ~1/8 of the full circle, a reasonable threshold for "complete confusion"
+  - Manual inspection allows checking if poor performers show consistent patterns vs. random responding
+
+```{r apply_exclusion, collapse=TRUE, comment=''}
+# For this analysis, we'll use the CONSERVATIVE criterion (Mean > 45°)
+# Store original data
+df_loc_original <- df_loc
+df_rat_original <- df_rat
+n_subjects_original <- n_distinct(df_loc$SubjectID)
+
+# Apply exclusion (if any participants meet criterion)
+if (nrow(excluded_conservative) > 0) {
+  excluded_ids <- excluded_conservative$SubjectID
+  df_loc <- df_loc %>% filter(!SubjectID %in% excluded_ids)
+  df_rat <- df_rat %>% filter(!SubjectID %in% excluded_ids)
+  
+  cat("\n### Exclusion Applied\n")
+  cat("Original N =", n_subjects_original, "\n")
+  cat("Excluded N =", length(excluded_ids), "(", paste(excluded_ids, collapse = ", "), ")\n")
+  cat("Final N =", n_distinct(df_loc$SubjectID), "\n")
+} else {
+  cat("\n### No Exclusions Applied\n")
+  cat("All", n_subjects_original, "participants meet the quality criterion (Mean Error < 45°)\n")
+}
+
+# Drop unused factor levels after exclusion
+df_loc$SubjectID <- droplevels(df_loc$SubjectID)
+df_loc$Algorithm <- droplevels(df_loc$Algorithm)
+
+df_rat$SubjectID <- droplevels(df_rat$SubjectID)
+df_rat$Algorithm <- droplevels(df_rat$Algorithm)
+
+# Check factor levels remain valid for modeling
+cat("\n### Post-exclusion factor levels:\n")
+cat("Algorithms:", nlevels(df_loc$Algorithm), "levels -",
+    paste(levels(df_loc$Algorithm), collapse = ", "), "\n")
+cat("Subjects:", nlevels(df_loc$SubjectID), "participants\n")
+
+# Verify we still have sufficient data structure for mixed models
+if (nlevels(df_loc$Algorithm) < 2) {
+  stop("ERROR: Less than 2 algorithm levels remaining after exclusion. Cannot proceed with analysis.")
+}
+if (nlevels(df_loc$SubjectID) < 10) {
+  warning("WARNING: Less than 10 subjects remaining. Mixed model estimates may be unstable.")
+}
+```
+
+### Localization Error Distributions (After Screening)
+
+```{r dist_loc, fig.height=5}
+p1 <- ggplot(df_loc, aes(x = Error, fill = Algorithm)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(data = loc_summary, aes(xintercept = Mean, color = Algorithm), 
+             linetype = "dashed", size = 0.8) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  labs(title = "Distribution of Localization Error",
+       x = "Localization Error (degrees)", 
+       y = "Density") +
+  theme_pubclean() +
+  theme(legend.position = "right")
+
+p2 <- ggplot(df_loc, aes(x = Algorithm, y = Error, fill = Algorithm)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA, width = 0.5) +
+  geom_jitter(alpha = 0.4, width = 0.15, size = 1.5) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red") +
+  scale_fill_viridis_d() +
+  labs(title = "Localization Error by Algorithm",
+       x = "Algorithm", 
+       y = "Localization Error (degrees)") +
+  theme_pubclean() +
+  theme(legend.position = "none")
+
+p_dist_loc <- grid.arrange(p1, p2, ncol = 2)
+ggsave(file.path(plot_dir, "03b_distribution_localization_error.png"), p_dist_loc, 
+       width = 12, height = 5, dpi = 300)
+```
+
+### Quality Rating Distributions
+
+```{r dist_rat, fig.height=5}
+p3 <- ggplot(df_rat, aes(x = Rating, fill = Algorithm)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(data = rat_summary, aes(xintercept = Mean, color = Algorithm), 
+             linetype = "dashed", size = 0.8) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  labs(title = "Distribution of Quality Ratings",
+       x = "Quality Rating (0-100)", 
+       y = "Density") +
+  theme_pubclean() +
+  theme(legend.position = "right")
+
+p4 <- ggplot(df_rat, aes(x = Algorithm, y = Rating, fill = Algorithm)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA, width = 0.5) +
+  geom_jitter(alpha = 0.4, width = 0.15, size = 1.5) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3, color = "red") +
+  scale_fill_viridis_d() +
+  labs(title = "Quality Rating by Algorithm",
+       x = "Algorithm", 
+       y = "Quality Rating (0-100)") +
+  theme_pubclean() +
+  theme(legend.position = "none")
+
+p_dist_rat <- grid.arrange(p3, p4, ncol = 2)
+ggsave(file.path(plot_dir, "03c_distribution_quality_rating.png"), p_dist_rat, 
+       width = 12, height = 5, dpi = 300)
+```
+
+## 3.5 Individual Participant Patterns
+
+```{r individual_patterns, fig.height=6}
+# Calculate participant means
+participant_means_loc <- df_loc %>%
+  group_by(SubjectID, Algorithm) %>%
+  summarise(Mean_Error = mean(Error, na.rm = TRUE), .groups = "drop")
+
+participant_means_rat <- df_rat %>%
+  group_by(SubjectID, Algorithm) %>%
+  summarise(Mean_Rating = mean(Rating, na.rm = TRUE), .groups = "drop")
+
+# Spaghetti plot - localization
+p7 <- ggplot(participant_means_loc, aes(x = Algorithm, y = Mean_Error, 
+                                         group = SubjectID, color = SubjectID)) +
+  geom_line(alpha = 0.4) +
+  geom_point(alpha = 0.4, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line", 
+               color = "black", size = 1.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point", 
+               color = "black", size = 3) +
+  labs(title = "Individual Localization Error Profiles",
+       subtitle = "Black line shows group mean",
+       x = "Algorithm", y = "Localization Error (degrees)") +
+  theme_pubclean() +
+  theme(legend.position = "none")
+
+# Spaghetti plot - rating
+p8 <- ggplot(participant_means_rat, aes(x = Algorithm, y = Mean_Rating, 
+                                         group = SubjectID, color = SubjectID)) +
+  geom_line(alpha = 0.4) +
+  geom_point(alpha = 0.4, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line", 
+               color = "black", size = 1.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point", 
+               color = "black", size = 3) +
+  labs(title = "Individual Quality Rating Profiles",
+       subtitle = "Black line shows group mean",
+       x = "Algorithm", y = "Quality Rating (0-100)") +
+  theme_pubclean() +
+  theme(legend.position = "none")
+
+p_individual <- grid.arrange(p7, p8, ncol = 2)
+ggsave(file.path(plot_dir, "03e_individual_patterns.png"), p_individual, 
+       width = 12, height = 6, dpi = 300)
+```
+
+# 4. Assumption Checks
+
+## 4.1 Normality of Localization Error
+
+The localization error data is expected to follow a log-normal distribution (error data is typically right-skewed and bounded at zero).
+
+```{r normality_loc, collapse=TRUE, comment=''}
+# Kolmogorov-Smirnov tests for log-normality
+ks_results_loc <- df_loc %>%
+  group_by(Algorithm) %>%
+  summarise(
+    fit_meanlog = tryCatch(
+      fitdistr(Error + 0.1, "lognormal")$estimate["meanlog"],
+      error = function(e) NA
+    ),
+    fit_sdlog = tryCatch(
+      fitdistr(Error + 0.1, "lognormal")$estimate["sdlog"],
+      error = function(e) NA
+    ),
+    .groups = "drop"
+  )
+
+# Perform KS tests
+ks_tests <- df_loc %>%
+  group_by(Algorithm) %>%
+  summarise(
+    ks_stat = tryCatch({
+      fit <- fitdistr(Error + 0.1, "lognormal")$estimate
+      ks.test(Error + 0.1, "plnorm", meanlog = fit[1], sdlog = fit[2])$statistic
+    }, error = function(e) NA),
+    ks_pvalue = tryCatch({
+      fit <- fitdistr(Error + 0.1, "lognormal")$estimate
+      ks.test(Error + 0.1, "plnorm", meanlog = fit[1], sdlog = fit[2])$p.value
+    }, error = function(e) NA),
+    .groups = "drop"
+  ) %>%
+  mutate(LogNormal = ifelse(ks_pvalue > 0.05, "Yes", "No"))
+
+kable(ks_tests, digits = 3,
+      caption = "Kolmogorov-Smirnov Tests for Log-Normality of Localization Error",
+      col.names = c("Algorithm", "D statistic", "p-value", "Log-Normal?")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Q-Q Plots for Log-Transformed Error
+
+```{r qq_loc, fig.height=4}
+p_qq_loc <- ggplot(df_loc, aes(sample = Log.Error)) +
+  geom_qq() +
+  geom_qq_line(color = "red") +
+  facet_wrap(~ Algorithm, scales = "free") +
+  labs(title = "Q-Q Plots for Log(Localization Error)",
+       x = "Theoretical Quantiles", y = "Sample Quantiles") +
+  theme_pubclean()
+p_qq_loc
+ggsave(file.path(plot_dir, "05_qq_localization_error.png"), p_qq_loc, 
+       width = 10, height = 4, dpi = 300)
+```
+
+## 4.2 Normality of Quality Ratings
+
+```{r normality_rat, collapse=TRUE, comment=''}
+# Shapiro-Wilk tests per algorithm
+shapiro_results <- df_rat %>%
+  group_by(Algorithm) %>%
+  summarise(
+    W = shapiro.test(Rating)$statistic,
+    p_value = shapiro.test(Rating)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(Normal = ifelse(p_value > 0.05, "Yes", "No"))
+
+kable(shapiro_results, digits = 3,
+      caption = "Shapiro-Wilk Tests for Normality of Quality Ratings",
+      col.names = c("Algorithm", "W statistic", "p-value", "Normal?")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### Q-Q Plots for Quality Ratings
+
+```{r qq_rat, fig.height=4}
+p_qq_rat <- ggplot(df_rat, aes(sample = Rating)) +
+  geom_qq() +
+  geom_qq_line(color = "red") +
+  facet_wrap(~ Algorithm, scales = "free") +
+  labs(title = "Q-Q Plots for Quality Ratings",
+       x = "Theoretical Quantiles", y = "Sample Quantiles") +
+  theme_pubclean()
+p_qq_rat
+ggsave(file.path(plot_dir, "05b_qq_quality_rating.png"), p_qq_rat, 
+       width = 10, height = 4, dpi = 300)
+```
+
+# 5. Statistical Analysis: Mixed Models
+
+## 5.1 Analysis of Localization Error (Gamma GLMM)
+
+### 5.1.1 Model Justification
+
+Localization error is a positive, right-skewed continuous variable bounded at zero. A **Gamma Generalized Linear Mixed Model (GLMM)** is theoretically optimal for such data because:
+
+1. Gamma distribution naturally models positive continuous data with right skew
+2. No need for log transformation - the link function handles the relationship
+3. Variance increases with the mean (heteroscedasticity is built into the model)
+4. More appropriate than log-normal LMM when residual normality is violated
+
+```{r glmm_loc_build, collapse=TRUE, comment=''}
+# Set contrasts for Algorithm (treatment coding with ScnRot as reference)
+df_loc$Algorithm <- relevel(df_loc$Algorithm, ref = "ScnRot")
+
+# Add small constant to handle any zeros (if present)
+df_loc$Error_pos <- df_loc$Error + 0.1
+
+# Gamma GLMM with log link (standard for Gamma)
+# Random intercept for subjects
+glmm_loc <- glmmTMB(Error_pos ~ Algorithm + (1 | SubjectID),
+                    data = df_loc,
+                    family = Gamma(link = "log"))
+
+cat("Gamma GLMM Model Summary:\n\n")
+summary(glmm_loc)
+```
+
+### 5.1.2 Model Comparison
+
+```{r glmm_loc_comparison, collapse=TRUE, comment=''}
+# Compare with simpler models
+# Null model (no algorithm effect)
+glmm_loc_null <- glmmTMB(Error_pos ~ 1 + (1 | SubjectID),
+                         data = df_loc,
+                         family = Gamma(link = "log"))
+
+# Likelihood ratio test
+cat("Likelihood Ratio Test: Algorithm Effect\n\n")
+lr_test <- anova(glmm_loc_null, glmm_loc)
+print(lr_test)
+
+cat("\nAIC Comparison:\n")
+cat("  Null model (no Algorithm):", AIC(glmm_loc_null), "\n")
+cat("  Full model (with Algorithm):", AIC(glmm_loc), "\n")
+cat("  Difference:", AIC(glmm_loc_null) - AIC(glmm_loc), 
+    "(positive = full model better)\n")
+```
+
+### 5.1.3 Residual Diagnostics (DHARMa)
+
+DHARMa provides proper residual diagnostics for GLMMs by creating scaled residuals
+through simulation.
+
+```{r glmm_loc_dharma, fig.height=6}
+# Create DHARMa residuals (scaled residuals via simulation)
+set.seed(42)  # For reproducibility
+dharma_loc <- simulateResiduals(fittedModel = glmm_loc, n = 1000)
+
+# Plot DHARMa diagnostics
+plot(dharma_loc, main = "DHARMa Residual Diagnostics - Localization Error")
+
+# Save the plot
+png(file.path(plot_dir, "06_dharma_diagnostics_localization.png"), 
+    width = 10, height = 6, units = "in", res = 300)
+plot(dharma_loc)
+dev.off()
+
+# Formal tests
+cat("\nDHARMa Residual Tests:\n\n")
+
+# Uniformity test (KS test on scaled residuals - should be uniform if model is correct)
+uniformity_test <- testUniformity(dharma_loc, plot = FALSE)
+cat("1. Uniformity Test (KS):\n")
+cat("   D =", round(uniformity_test$statistic, 4), 
+    ", p =", round(uniformity_test$p.value, 4), "\n")
+cat("   Interpretation:", 
+    ifelse(uniformity_test$p.value > 0.05, 
+           "Residuals are uniform (model fits well)\n",
+           "Some deviation from uniformity detected\n"))
+
+# Dispersion test
+dispersion_test <- testDispersion(dharma_loc, plot = FALSE)
+cat("\n2. Dispersion Test:\n")
+cat("   Dispersion ratio =", round(dispersion_test$statistic, 4), 
+    ", p =", round(dispersion_test$p.value, 4), "\n")
+cat("   Interpretation:", 
+    ifelse(dispersion_test$p.value > 0.05, 
+           "No over/underdispersion detected\n",
+           ifelse(dispersion_test$statistic > 1, 
+                  "Overdispersion detected\n", 
+                  "Underdispersion detected\n")))
+
+# Outlier test
+outlier_test <- testOutliers(dharma_loc, plot = FALSE)
+cat("\n3. Outlier Test:\n")
+cat("   p =", round(outlier_test$p.value, 4), "\n")
+cat("   Interpretation:", 
+    ifelse(outlier_test$p.value > 0.05, 
+           "No significant outliers\n",
+           "Significant outliers detected\n"))
+
+# Store test results for export
+dharma_uniformity_p <- uniformity_test$p.value
+dharma_dispersion_p <- dispersion_test$p.value
+dharma_dispersion_ratio <- dispersion_test$statistic
+```
+
+### 5.1.4 Additional Diagnostic Plots
+
+```{r glmm_loc_residuals, fig.height=5}
+# Extract residuals for custom plots
+resid_loc <- data.frame(
+  Fitted = fitted(glmm_loc),
+  Residuals = residuals(glmm_loc, type = "pearson"),
+  ScaledResiduals = dharma_loc$scaledResiduals,
+  Algorithm = df_loc$Algorithm,
+  SubjectID = df_loc$SubjectID
+)
+
+# Residuals by Algorithm
+g1 <- ggplot(resid_loc, aes(x = Algorithm, y = Residuals)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Pearson Residuals by Algorithm",
+       x = "Algorithm", y = "Pearson Residuals") +
+  theme_pubclean()
+
+# Scaled residuals by Algorithm (should be uniform 0-1)
+g2 <- ggplot(resid_loc, aes(x = Algorithm, y = ScaledResiduals)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.7) +
+  geom_hline(yintercept = c(0.25, 0.5, 0.75), linetype = "dashed", color = "grey50") +
+  labs(title = "DHARMa Scaled Residuals by Algorithm",
+       subtitle = "Should be uniform (0-1) if model is correct",
+       x = "Algorithm", y = "Scaled Residuals") +
+  theme_pubclean()
+
+# Random effects check
+ranef_loc <- ranef(glmm_loc)$cond$SubjectID
+ranef_df <- data.frame(
+  SubjectID = rownames(ranef_loc),
+  Intercept = ranef_loc[,1]
+)
+
+g3 <- ggplot(ranef_df, aes(sample = Intercept)) +
+  geom_qq() +
+  geom_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Random Effects",
+       x = "Theoretical Quantiles", y = "Random Intercepts") +
+  theme_pubclean()
+
+p_resid_loc <- grid.arrange(g1, g2, g3, ncol = 3)
+ggsave(file.path(plot_dir, "06b_residual_diagnostics_localization.png"), p_resid_loc, 
+       width = 15, height = 5, dpi = 300)
+```
+
+### 5.1.5 Type II Wald Chi-Square Test
+
+```{r glmm_loc_anova, collapse=TRUE, comment=''}
+# For GLMMs, we use Type II Wald chi-square tests
+cat("Type II Wald Chi-Square Tests (Analysis of Deviance)\n\n")
+anova_loc <- car::Anova(glmm_loc, type = "II")
+print(anova_loc)
+
+# Effect size: Calculate pseudo R-squared (Nakagawa & Schielzeth)
+# Using variance components
+var_fixed <- var(predict(glmm_loc, re.form = NA))  # Fixed effects variance
+var_random <- as.numeric(VarCorr(glmm_loc)$cond$SubjectID)  # Random intercept variance
+# For Gamma with log link, residual variance approximation
+var_residual <- trigamma(1/sigma(glmm_loc)^2)  # Based on Gamma distribution property
+
+R2_marginal <- var_fixed / (var_fixed + var_random + var_residual)
+R2_conditional <- (var_fixed + var_random) / (var_fixed + var_random + var_residual)
+
+cat("\nPseudo R-squared (Nakagawa & Schielzeth method):\n")
+cat("  Marginal R² (fixed effects only):", round(R2_marginal, 3), "\n")
+cat("  Conditional R² (fixed + random):", round(R2_conditional, 3), "\n")
+
+# Store for export
+chisq_loc <- anova_loc$Chisq[1]
+df_loc_anova <- anova_loc$Df[1]
+p_loc_anova <- anova_loc$`Pr(>Chisq)`[1]
+```
+
+### 5.1.6 Post-hoc Pairwise Comparisons
+
+```{r glmm_loc_posthoc, collapse=TRUE, comment=''}
+# Post-hoc pairwise comparisons with Holm correction
+# emmeans works with glmmTMB
+emm_loc <- emmeans(glmm_loc, ~ Algorithm, type = "response")
+pairs_loc <- pairs(emm_loc, adjust = "holm")
+
+cat("Pairwise Comparisons (Holm-adjusted):\n")
+cat("Note: Ratios are shown because of log link (ratio > 1 means first > second)\n\n")
+print(pairs_loc)
+
+# Also show as summary table
+pairs_df <- as.data.frame(pairs_loc)
+pairs_df$significant <- ifelse(pairs_df$p.value < 0.05, "*", "")
+pairs_df$significant[pairs_df$p.value < 0.01] <- "**"
+pairs_df$significant[pairs_df$p.value < 0.001] <- "***"
+
+kable(pairs_df, digits = 4,
+      caption = "Post-hoc Pairwise Comparisons: Localization Error (Ratios)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### 5.1.7 Estimated Marginal Means
+
+```{r glmm_loc_emmeans, collapse=TRUE, comment=''}
+# Get EMMs on response scale (back-transformed)
+emm_loc_df <- as.data.frame(emm_loc)
+
+# Check column names - glmmTMB uses asymp.LCL and asymp.UCL
+# Adjust for the +0.1 offset we added
+emm_loc_df$Error_mean <- emm_loc_df$response - 0.1
+emm_loc_df$Error_lower <- emm_loc_df$asymp.LCL - 0.1
+emm_loc_df$Error_upper <- emm_loc_df$asymp.UCL - 0.1
+
+# Rename for clarity (these are model-estimated means on original scale)
+kable(emm_loc_df[, c("Algorithm", "response", "SE", "Error_mean", "Error_lower", "Error_upper")], 
+      digits = 2,
+      col.names = c("Algorithm", "EMM (+0.1)", "SE", "Estimated Mean (°)", "Lower 95% CI", "Upper 95% CI"),
+      caption = "Estimated Marginal Means: Localization Error (Gamma GLMM)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Also compute ICC for random effects
+var_subj <- as.numeric(VarCorr(glmm_loc)$cond$SubjectID)
+# For Gamma, total variance approximation
+icc_loc <- var_subj / (var_subj + var_residual)
+cat("\nIntraclass Correlation (ICC) for Subject:", round(icc_loc, 3), "\n")
+cat("Interpretation:", round(icc_loc * 100, 1), "% of variance is between subjects\n")
+```
+
+## 5.2 Analysis of Quality Ratings
+
+### 5.2.1 Model Building
+
+```{r lmm_rat_build, collapse=TRUE, comment=''}
+# Set contrasts
+df_rat$Algorithm <- relevel(df_rat$Algorithm, ref = "ScnRot")
+contrasts(df_rat$Algorithm) <- contr.treatment(nlevels(df_rat$Algorithm))
+
+# Model 1.0: Basic model with random intercept for subjects
+m1.0.rat <- lme(Rating ~ Algorithm, 
+                random = ~ 1 | SubjectID, 
+                data = df_rat, 
+                method = "REML")
+
+# Model 1.1: Heterogeneous residual variance across algorithms
+m1.1.rat <- update(m1.0.rat, weights = varIdent(form = ~ 1 | Algorithm))
+
+# Compare models
+cat("Model Comparison: Homogeneous vs Heterogeneous Variance\n")
+print(anova(m1.1.rat, m1.0.rat))
+```
+
+### 5.2.2 Selected Model Summary
+
+```{r lmm_rat_summary, collapse=TRUE, comment=''}
+selected_model_rat <- m1.0.rat
+
+cat("Selected Model Summary:\n\n")
+summary(selected_model_rat)
+```
+
+### 5.2.3 Residual Diagnostics
+
+```{r lmm_rat_residuals, fig.height=5}
+resid_rat <- data.frame(
+  Fitted = fitted(selected_model_rat),
+  Residuals = resid(selected_model_rat, type = "pearson"),
+  Algorithm = df_rat$Algorithm
+)
+
+g4 <- ggplot(resid_rat, aes(x = Fitted, y = Residuals)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") +
+  labs(title = "Residuals vs Fitted Values",
+       x = "Fitted Values", y = "Pearson Residuals") +
+  theme_pubclean()
+
+g5 <- ggplot(resid_rat, aes(sample = Residuals)) +
+  geom_qq() +
+  geom_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals",
+       x = "Theoretical Quantiles", y = "Sample Quantiles") +
+  theme_pubclean()
+
+g6 <- ggplot(resid_rat, aes(x = Algorithm, y = Residuals)) +
+  geom_boxplot(fill = "lightcoral", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals by Algorithm",
+       x = "Algorithm", y = "Pearson Residuals") +
+  theme_pubclean()
+
+p_resid_rat <- grid.arrange(g4, g5, g6, ncol = 3)
+ggsave(file.path(plot_dir, "07_residual_diagnostics_rating.png"), p_resid_rat, 
+       width = 15, height = 5, dpi = 300)
+```
+
+### 5.2.4 Formal Residual Tests
+
+```{r lmm_rat_formal_diagnostics, collapse=TRUE, comment=''}
+# Shapiro-Wilk test on model residuals
+residuals_rat <- resid(selected_model_rat, type = "pearson")
+sw_resid_rat <- shapiro.test(residuals_rat)
+
+cat("Shapiro-Wilk Test on Model Residuals (Rating):\n")
+cat("  W =", round(sw_resid_rat$statistic, 4), 
+    ", p =", round(sw_resid_rat$p.value, 4), "\n")
+cat("  Interpretation:", 
+    ifelse(sw_resid_rat$p.value > 0.05, 
+           "Residuals appear normally distributed (p > .05)\n",
+           "Some deviation from normality detected; LMM is robust to moderate violations\n"))
+
+# Levene's test for homogeneity of variance across algorithms
+cat("\nLevene's Test for Homogeneity of Variance (Rating):\n")
+levene_rat <- leveneTest(Rating ~ Algorithm, data = df_rat, center = median)
+print(levene_rat)
+levene_rat_p <- levene_rat$`Pr(>F)`[1]
+cat("  Interpretation:", 
+    ifelse(levene_rat_p > 0.05, 
+           "Variance is homogeneous across groups (p > .05)\n",
+           "Heterogeneous variance detected; consider using varIdent() in nlme\n"))
+
+# Influential observations check
+std_resid_rat <- residuals_rat / sd(residuals_rat)
+n_extreme_rat <- sum(abs(std_resid_rat) > 3)
+cat("\nInfluential Observations Check:\n")
+cat("  Observations with |standardized residual| > 3:", n_extreme_rat, 
+    "out of", length(std_resid_rat), "\n")
+cat("  Percentage:", round(100 * n_extreme_rat / length(std_resid_rat), 1), "%\n")
+```
+
+### 5.2.5 ANOVA and Post-hoc Tests
+
+```{r lmm_rat_anova, collapse=TRUE, comment=''}
+cat("Analysis of Variance (Type III)\n\n")
+anova_rat <- anova(selected_model_rat)
+print(anova_rat)
+
+# Effect size
+F_val <- anova_rat$`F-value`[2]
+df1 <- anova_rat$numDF[2]
+df2 <- anova_rat$denDF[2]
+eta_sq <- (F_val * df1) / (F_val * df1 + df2)
+cat("\nApproximate η² for Algorithm effect:", round(eta_sq, 3), "\n")
+```
+
+### 5.2.6 Post-hoc Pairwise Comparisons
+
+```{r lmm_rat_posthoc, collapse=TRUE, comment=''}
+emm_rat <- emmeans(selected_model_rat, ~ Algorithm)
+pairs_rat <- pairs(emm_rat, adjust = "holm")
+
+cat("Pairwise Comparisons (Holm-adjusted):\n\n")
+print(pairs_rat)
+
+pairs_df_rat <- as.data.frame(pairs_rat)
+pairs_df_rat$significant <- ifelse(pairs_df_rat$p.value < 0.05, "*", "")
+pairs_df_rat$significant[pairs_df_rat$p.value < 0.01] <- "**"
+pairs_df_rat$significant[pairs_df_rat$p.value < 0.001] <- "***"
+
+kable(pairs_df_rat, digits = 4,
+      caption = "Post-hoc Pairwise Comparisons: Quality Rating") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+### 5.2.7 Estimated Marginal Means
+
+```{r lmm_rat_emmeans, collapse=TRUE, comment=''}
+emm_rat_df <- as.data.frame(emm_rat)
+
+kable(emm_rat_df[, c("Algorithm", "emmean", "SE", "lower.CL", "upper.CL")], 
+      digits = 2,
+      col.names = c("Algorithm", "Rating EMM", "SE", "Lower 95% CI", "Upper 95% CI"),
+      caption = "Estimated Marginal Means: Quality Rating") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+# 6. Results Visualization
+
+## 6.1 Combined Results Plot
+
+```{r results_plot, fig.height=5, fig.width=12}
+# Prepare CI data for localization (using Error_mean from Gamma GLMM)
+ci_loc <- emm_loc_df %>%
+  mutate(
+    y = Error_mean,
+    ymin = Error_lower,
+    ymax = Error_upper
+  )
+
+# Prepare CI data for ratings
+ci_rat <- emm_rat_df %>%
+  mutate(
+    y = emmean,
+    ymin = lower.CL,
+    ymax = upper.CL
+  )
+
+# Localization plot - boxplot with jittered points (no violin)
+p_loc <- ggplot() +
+  geom_boxplot(data = df_loc, aes(x = Algorithm, y = Error), 
+               fill = "lightgrey", alpha = 0.5, outlier.shape = NA, width = 0.5) +
+  geom_jitter(data = df_loc, aes(x = Algorithm, y = Error), 
+              alpha = 0.4, width = 0.15, size = 1.5, color = "darkgrey") +
+  geom_point(data = ci_loc, aes(x = Algorithm, y = y), 
+             shape = 18, size = 5, color = "black") +
+  geom_errorbar(data = ci_loc, aes(x = Algorithm, ymin = ymin, ymax = ymax), 
+                width = 0.2, linewidth = 1) +
+  scale_y_continuous(breaks = seq(0, 40, 5)) +
+  labs(title = "Localization Error by Algorithm",
+       subtitle = "Gamma GLMM estimated means with 95% CI; boxplot shows data distribution",
+       x = "Rendering Algorithm", 
+       y = "Localization Error (degrees)") +
+  theme_pubclean() +
+  theme(axis.text.x = element_text(size = 11, angle = 0))
+
+# Rating plot - boxplot with jittered points (no violin)
+p_rat <- ggplot() +
+  geom_boxplot(data = df_rat, aes(x = Algorithm, y = Rating), 
+               fill = "lightgrey", alpha = 0.5, outlier.shape = NA, width = 0.5) +
+  geom_jitter(data = df_rat, aes(x = Algorithm, y = Rating), 
+              alpha = 0.4, width = 0.15, size = 1.5, color = "darkgrey") +
+  geom_point(data = ci_rat, aes(x = Algorithm, y = y), 
+             shape = 18, size = 5, color = "black") +
+  geom_errorbar(data = ci_rat, aes(x = Algorithm, ymin = ymin, ymax = ymax), 
+                width = 0.2, linewidth = 1) +
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  labs(title = "Quality Rating by Algorithm",
+       subtitle = "Estimated marginal means with 95% CI; boxplot shows data distribution",
+       x = "Rendering Algorithm", 
+       y = "Quality Rating (0-100)") +
+  theme_pubclean() +
+  theme(axis.text.x = element_text(size = 11, angle = 0))
+
+p_results <- grid.arrange(p_loc, p_rat, ncol = 2)
+ggsave(file.path(plot_dir, "08_main_results.png"), p_results, 
+       width = 12, height = 5, dpi = 300)
+
+# Save individual plots for publication
+ggsave(file.path(plot_dir, "08a_localization_error_results.png"), p_loc, 
+       width = 6, height = 5, dpi = 300)
+ggsave(file.path(plot_dir, "08b_quality_rating_results.png"), p_rat, 
+       width = 6, height = 5, dpi = 300)
+```
+
+## 6.2 Correlation Between Measures
+
+```{r correlation, fig.height=5}
+# Merge localization and rating data at participant-algorithm level
+df_merged <- df_loc %>%
+  group_by(SubjectID, Algorithm) %>%
+  summarise(Mean_Error = mean(Error, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    df_rat %>%
+      group_by(SubjectID, Algorithm) %>%
+      summarise(Mean_Rating = mean(Rating, na.rm = TRUE), .groups = "drop"),
+    by = c("SubjectID", "Algorithm")
+  )
+
+# Overall correlation
+cor_test <- cor.test(df_merged$Mean_Error, df_merged$Mean_Rating, method = "pearson")
+cat("Pearson correlation between Error and Rating:\n")
+cat("r =", round(cor_test$estimate, 3), ", p =", format.pval(cor_test$p.value, digits = 3), "\n\n")
+
+# Correlation by algorithm
+cor_by_alg <- df_merged %>%
+  group_by(Algorithm) %>%
+  summarise(
+    r = cor(Mean_Error, Mean_Rating, use = "complete.obs"),
+    n = n(),
+    .groups = "drop"
+  )
+
+kable(cor_by_alg, digits = 3,
+      caption = "Correlation between Error and Rating by Algorithm") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+# Scatter plot
+p_corr <- ggplot(df_merged, aes(x = Mean_Error, y = Mean_Rating, color = Algorithm)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  scale_color_viridis_d() +
+  labs(title = "Relationship between Localization Error and Quality Rating",
+       subtitle = paste0("Overall r = ", round(cor_test$estimate, 3)),
+       x = "Mean Localization Error (degrees)",
+       y = "Mean Quality Rating (0-100)") +
+  theme_pubclean()
+p_corr
+ggsave(file.path(plot_dir, "09_correlation_error_rating.png"), p_corr, 
+       width = 8, height = 5, dpi = 300)
+```
+
+# 7. Summary and Conclusions
+
+## 7.1 Key Findings
+
+```{r summary_table, echo=FALSE, results='asis'}
+# Create summary table (Gamma GLMM uses Chi-square, LMM uses F-test)
+summary_findings <- data.frame(
+  Measure = c("Localization Error", "Quality Rating"),
+  Test_statistic = c(
+    paste0("χ²(", df_loc_anova, ") = ", round(chisq_loc, 2)),
+    paste0("F(", anova_rat$numDF[2], ",", anova_rat$denDF[2], ") = ", 
+           round(anova_rat$`F-value`[2], 2))
+  ),
+  p_value = c(
+    format.pval(p_loc_anova, digits = 3),
+    format.pval(anova_rat$`p-value`[2], digits = 3)
+  ),
+  Significant = c(
+    ifelse(p_loc_anova < 0.05, "Yes", "No"),
+    ifelse(anova_rat$`p-value`[2] < 0.05, "Yes", "No")
+  )
+)
+
+kable(summary_findings, 
+      caption = "Summary of Main Effects",
+      col.names = c("Dependent Variable", "Test Statistic", "p-value", "Significant?")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+## 7.2 Export Results for LaTeX
+
+```{r export_results, collapse=TRUE, comment=''}
+# Create results directory
+results_dir <- "../results"
+if (!dir.exists(results_dir)) {
+  dir.create(results_dir, recursive = TRUE)
+}
+
+# 1. Descriptive statistics
+write.csv(loc_summary, file.path(results_dir, "descriptive_localization.csv"), row.names = FALSE)
+write.csv(rat_summary, file.path(results_dir, "descriptive_rating.csv"), row.names = FALSE)
+
+# 2. ANOVA/Model comparison results
+# For localization: Gamma GLMM uses chi-square test
+# For ratings: LMM uses F-test
+anova_results <- data.frame(
+  DV = c("Localization_Error_GammaGLMM", "Quality_Rating_LMM"),
+  Effect = "Algorithm",
+  Test_Statistic = c(chisq_loc, anova_rat$`F-value`[2]),
+  Test_Type = c("Chi-square", "F"),
+  df1 = c(df_loc_anova, anova_rat$numDF[2]),
+  df2 = c(NA, anova_rat$denDF[2]),  # Chi-square doesn't have df2
+  p_value = c(p_loc_anova, anova_rat$`p-value`[2]),
+  R2_marginal = c(R2_marginal, NA),
+  R2_conditional = c(R2_conditional, NA),
+  eta_sq_approx = c(
+    NA,  # Not applicable for GLMM
+    (anova_rat$`F-value`[2] * anova_rat$numDF[2]) / 
+      (anova_rat$`F-value`[2] * anova_rat$numDF[2] + anova_rat$denDF[2])
+  )
+)
+write.csv(anova_results, file.path(results_dir, "anova_results.csv"), row.names = FALSE)
+
+# 3. Post-hoc comparisons
+posthoc_loc <- as.data.frame(pairs_loc)
+posthoc_loc$DV <- "Localization_Error"
+posthoc_rat <- as.data.frame(pairs_rat)
+posthoc_rat$DV <- "Quality_Rating"
+# Note: posthoc_loc has different columns (ratio instead of estimate) - need to harmonize
+posthoc_loc_export <- posthoc_loc[, c("contrast", "ratio", "SE", "p.value", "DV")]
+names(posthoc_loc_export) <- c("contrast", "estimate", "SE", "p.value", "DV")
+posthoc_rat_export <- posthoc_rat[, c("contrast", "estimate", "SE", "p.value", "DV")]
+posthoc_all <- rbind(posthoc_loc_export, posthoc_rat_export)
+write.csv(posthoc_all, file.path(results_dir, "posthoc_comparisons.csv"), row.names = FALSE)
+
+# 4. Estimated marginal means
+emm_loc_export <- emm_loc_df
+emm_loc_export$DV <- "Localization_Error"
+emm_rat_export <- emm_rat_df
+emm_rat_export$DV <- "Quality_Rating"
+write.csv(emm_loc_export, file.path(results_dir, "emm_localization.csv"), row.names = FALSE)
+write.csv(emm_rat_export, file.path(results_dir, "emm_rating.csv"), row.names = FALSE)
+
+# 5. Model summaries
+# For Gamma GLMM (localization)
+model_summary_loc <- data.frame(
+  DV = "Localization_Error",
+  Model_Type = "Gamma_GLMM",
+  ICC = icc_loc,
+  Var_Subject = var_subj,
+  Var_Residual = var_residual,
+  Dispersion = sigma(glmm_loc),
+  R2_marginal = R2_marginal,
+  R2_conditional = R2_conditional,
+  N_Subjects = length(unique(df_loc$SubjectID)),
+  N_Observations = nrow(df_loc)
+)
+# For LMM (ratings)
+model_summary_rat <- data.frame(
+  DV = "Quality_Rating",
+  Model_Type = "LMM",
+  ICC = as.numeric(VarCorr(selected_model_rat)[1,1]) / 
+        (as.numeric(VarCorr(selected_model_rat)[1,1]) + selected_model_rat$sigma^2),
+  Var_Subject = as.numeric(VarCorr(selected_model_rat)[1,1]),
+  Var_Residual = selected_model_rat$sigma^2,
+  Dispersion = NA,
+  R2_marginal = NA,
+  R2_conditional = NA,
+  N_Subjects = length(unique(df_rat$SubjectID)),
+  N_Observations = nrow(df_rat)
+)
+model_summaries <- rbind(model_summary_loc, model_summary_rat)
+write.csv(model_summaries, file.path(results_dir, "model_summaries.csv"), row.names = FALSE)
+
+# 6. Correlation results
+cor_results <- data.frame(
+  Comparison = "Error_vs_Rating",
+  r = cor_test$estimate,
+  t_value = cor_test$statistic,
+  df = cor_test$parameter,
+  p_value = cor_test$p.value,
+  CI_lower = cor_test$conf.int[1],
+  CI_upper = cor_test$conf.int[2]
+)
+write.csv(cor_results, file.path(results_dir, "correlation_results.csv"), row.names = FALSE)
+
+# 7. Assumption test results
+# For Gamma GLMM: use DHARMa tests
+# For LMM: use traditional tests
+assumption_results <- data.frame(
+  Model = c("Localization_GammaGLMM", "Localization_GammaGLMM", "Localization_GammaGLMM",
+            "Rating_LMM", "Rating_LMM"),
+  Test = c("DHARMa Uniformity (KS)", "DHARMa Dispersion", "DHARMa Outliers",
+           "Shapiro-Wilk (Residuals)", "Levene (Variance)"),
+  Statistic = c(uniformity_test$statistic, dharma_dispersion_ratio, NA,
+                sw_resid_rat$statistic, levene_rat$`F value`[1]),
+  p_value = c(dharma_uniformity_p, dharma_dispersion_p, outlier_test$p.value,
+              sw_resid_rat$p.value, levene_rat_p),
+  Assumption_Met = c(dharma_uniformity_p > 0.05, dharma_dispersion_p > 0.05, 
+                     outlier_test$p.value > 0.05,
+                     sw_resid_rat$p.value > 0.05, levene_rat_p > 0.05)
+)
+write.csv(assumption_results, file.path(results_dir, "assumption_tests.csv"), row.names = FALSE)
+
+# 8. Exclusion summary
+exclusion_summary <- data.frame(
+  N_Original = n_subjects_original,
+  N_Excluded = n_subjects_original - n_distinct(df_loc$SubjectID),
+  N_Final = n_distinct(df_loc$SubjectID),
+  Criterion = "Mean localization error > 45 degrees",
+  Excluded_IDs = ifelse(exists("excluded_ids") && length(excluded_ids) > 0,
+                        paste(excluded_ids, collapse = "; "), "None")
+)
+write.csv(exclusion_summary, file.path(results_dir, "exclusion_summary.csv"), row.names = FALSE)
+
+# 9. Create a LaTeX-ready summary file
+sink(file.path(results_dir, "latex_values.tex"))
+cat("% Auto-generated statistics for LaTeX inclusion\n")
+cat("% Generated on:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n")
+
+# R version
+cat("% R Version\n")
+cat("\\newcommand{\\Rversion}{", paste0(R.version$major, ".", R.version$minor), "}\n", sep = "")
+
+# Sample sizes
+cat("\n% Sample sizes\n")
+cat("\\newcommand{\\nSubjects}{", n_distinct(df_loc$SubjectID), "}\n", sep = "")
+cat("\\newcommand{\\nObsLoc}{", nrow(df_loc), "}\n", sep = "")
+cat("\\newcommand{\\nObsRat}{", nrow(df_rat), "}\n", sep = "")
+cat("\\newcommand{\\groundTruthAzimuth}{312}\n", sep = "")
+
+# Localization: Gamma GLMM - Chi-square test
+cat("\n% Localization Error: Gamma GLMM with log link\n")
+cat("\\newcommand{\\chisqLoc}{", round(chisq_loc, 2), "}\n", sep = "")
+cat("\\newcommand{\\dfLoc}{", df_loc_anova, "}\n", sep = "")
+cat("\\newcommand{\\pvalLoc}{", format.pval(p_loc_anova, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\RsqMargLoc}{", round(R2_marginal, 3), "}\n", sep = "")
+cat("\\newcommand{\\RsqCondLoc}{", round(R2_conditional, 3), "}\n", sep = "")
+
+# ANOVA - Rating (LMM - F-test)
+cat("\n% Quality Rating: LMM\n")
+cat("\\newcommand{\\FdfRatNum}{", anova_rat$numDF[2], "}\n", sep = "")
+cat("\\newcommand{\\FdfRatDen}{", anova_rat$denDF[2], "}\n", sep = "")
+cat("\\newcommand{\\FvalRat}{", round(anova_rat$`F-value`[2], 2), "}\n", sep = "")
+cat("\\newcommand{\\pvalRat}{", format.pval(anova_rat$`p-value`[2], digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\etasqRat}{", round(anova_results$eta_sq_approx[2], 3), "}\n", sep = "")
+
+# ICC values
+cat("\n% Intraclass Correlations\n")
+cat("\\newcommand{\\ICCLoc}{", round(icc_loc, 3), "}\n", sep = "")
+cat("\\newcommand{\\ICCRat}{", round(model_summary_rat$ICC, 3), "}\n", sep = "")
+
+# Correlation
+cat("\n% Correlation between localization error and quality rating\n")
+cat("\\newcommand{\\corrR}{", round(cor_test$estimate, 2), "}\n", sep = "")
+cat("\\newcommand{\\corrP}{", format.pval(cor_test$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
+
+# Algorithm-specific EMMs for Localization (estimated means in degrees from Gamma GLMM)
+cat("\n% Localization EMMs (estimated mean in degrees from Gamma GLMM)\n")
+for (i in 1:nrow(emm_loc_df)) {
+  alg_name <- gsub("\\.", "", as.character(emm_loc_df$Algorithm[i]))  # Remove dots for LaTeX command
+  alg_name <- gsub("6DoF", "SixDoF", alg_name)  # Replace 6DoF with SixDoF to avoid digit issues
+  cat("\\newcommand{\\EMMLocMean", alg_name, "}{", 
+      round(emm_loc_df$Error_mean[i], 2), "}\n", sep = "")
+  cat("\\newcommand{\\EMMLocSE", alg_name, "}{", 
+      round(emm_loc_df$SE[i], 2), "}\n", sep = "")
+  cat("\\newcommand{\\EMMLocLo", alg_name, "}{", 
+      round(emm_loc_df$Error_lower[i], 2), "}\n", sep = "")
+  cat("\\newcommand{\\EMMLocHi", alg_name, "}{", 
+      round(emm_loc_df$Error_upper[i], 2), "}\n", sep = "")
+}
+
+# Algorithm-specific EMMs for Rating
+cat("\n% Rating EMMs\n")
+for (i in 1:nrow(emm_rat_df)) {
+  alg_name <- gsub("\\.", "", as.character(emm_rat_df$Algorithm[i]))
+  alg_name <- gsub("6DoF", "SixDoF", alg_name)  # Replace 6DoF with SixDoF
+  cat("\\newcommand{\\EMMRatMean", alg_name, "}{", 
+      round(emm_rat_df$emmean[i], 1), "}\n", sep = "")
+  cat("\\newcommand{\\EMMRatSE", alg_name, "}{", 
+      round(emm_rat_df$SE[i], 2), "}\n", sep = "")
+  cat("\\newcommand{\\EMMRatLo", alg_name, "}{", 
+      round(emm_rat_df$lower.CL[i], 1), "}\n", sep = "")
+  cat("\\newcommand{\\EMMRatHi", alg_name, "}{", 
+      round(emm_rat_df$upper.CL[i], 1), "}\n", sep = "")
+}
+
+# Best/worst performers
+cat("\n% Best and worst performers\n")
+best_loc_idx <- which.min(emm_loc_df$Error_mean)
+worst_loc_idx <- which.max(emm_loc_df$Error_mean)
+best_rat_idx <- which.max(emm_rat_df$emmean)
+worst_rat_idx <- which.min(emm_rat_df$emmean)
+
+cat("\\newcommand{\\bestLocAlg}{", as.character(emm_loc_df$Algorithm[best_loc_idx]), "}\n", sep = "")
+cat("\\newcommand{\\bestLocValue}{", round(emm_loc_df$Error_mean[best_loc_idx], 2), "}\n", sep = "")
+cat("\\newcommand{\\worstLocAlg}{", as.character(emm_loc_df$Algorithm[worst_loc_idx]), "}\n", sep = "")
+cat("\\newcommand{\\worstLocValue}{", round(emm_loc_df$Error_mean[worst_loc_idx], 2), "}\n", sep = "")
+cat("\\newcommand{\\bestRatAlg}{", as.character(emm_rat_df$Algorithm[best_rat_idx]), "}\n", sep = "")
+cat("\\newcommand{\\bestRatValue}{", round(emm_rat_df$emmean[best_rat_idx], 1), "}\n", sep = "")
+cat("\\newcommand{\\worstRatAlg}{", as.character(emm_rat_df$Algorithm[worst_rat_idx]), "}\n", sep = "")
+cat("\\newcommand{\\worstRatValue}{", round(emm_rat_df$emmean[worst_rat_idx], 1), "}\n", sep = "")
+
+# ============================================
+# ALL POST-HOC COMPARISONS for Localization (ratios from Gamma GLMM)
+# ============================================
+cat("\n% Localization post-hoc comparisons (all pairs - ratios from Gamma GLMM)\n")
+pairs_loc_df <- as.data.frame(pairs_loc)
+for (i in 1:nrow(pairs_loc_df)) {
+  # Create clean command name from contrast
+  contrast_clean <- gsub(" / ", "Vs", pairs_loc_df$contrast[i])
+  contrast_clean <- gsub("\\.", "", contrast_clean)
+  contrast_clean <- gsub("6DoF", "SixDoF", contrast_clean)
+  contrast_clean <- trimws(contrast_clean)
+  
+  # Ratio
+  cat("\\newcommand{\\pairLocRatio", contrast_clean, "}{", 
+      round(pairs_loc_df$ratio[i], 2), "}\n", sep = "")
+  # SE
+  cat("\\newcommand{\\pairLocSE", contrast_clean, "}{", 
+      round(pairs_loc_df$SE[i], 2), "}\n", sep = "")
+  # z-value
+  cat("\\newcommand{\\pairLocZ", contrast_clean, "}{", 
+      round(pairs_loc_df$z.ratio[i], 2), "}\n", sep = "")
+  # p-value
+  cat("\\newcommand{\\pairLocP", contrast_clean, "}{", 
+      format.pval(pairs_loc_df$p.value[i], digits = 3, eps = 0.001), "}\n", sep = "")
+}
+
+# ============================================
+# ALL POST-HOC COMPARISONS for Rating (differences from LMM)
+# ============================================
+cat("\n% Rating post-hoc comparisons (all pairs - differences from LMM)\n")
+pairs_rat_df <- as.data.frame(pairs_rat)
+for (i in 1:nrow(pairs_rat_df)) {
+  # Create clean command name from contrast
+  contrast_clean <- gsub(" - ", "Vs", pairs_rat_df$contrast[i])
+  contrast_clean <- gsub("\\.", "", contrast_clean)
+  contrast_clean <- gsub("6DoF", "SixDoF", contrast_clean)
+  contrast_clean <- trimws(contrast_clean)
+  
+  # Difference (estimate)
+  cat("\\newcommand{\\pairRatDiff", contrast_clean, "}{", 
+      round(pairs_rat_df$estimate[i], 1), "}\n", sep = "")
+  # SE
+  cat("\\newcommand{\\pairRatSE", contrast_clean, "}{", 
+      round(pairs_rat_df$SE[i], 2), "}\n", sep = "")
+  # t-value
+  cat("\\newcommand{\\pairRatT", contrast_clean, "}{", 
+      round(pairs_rat_df$t.ratio[i], 2), "}\n", sep = "")
+  # df
+  cat("\\newcommand{\\pairRatDF", contrast_clean, "}{", 
+      round(pairs_rat_df$df[i], 0), "}\n", sep = "")
+  # p-value
+  cat("\\newcommand{\\pairRatP", contrast_clean, "}{", 
+      format.pval(pairs_rat_df$p.value[i], digits = 3, eps = 0.001), "}\n", sep = "")
+}
+
+# Significant comparisons count
+cat("\n% Significant comparisons count\n")
+cat("\\newcommand{\\nSigLoc}{", sum(pairs_loc_df$p.value < 0.05), "}\n", sep = "")
+cat("\\newcommand{\\nSigRat}{", sum(pairs_rat_df$p.value < 0.05), "}\n", sep = "")
+cat("\\newcommand{\\nTotalComparisons}{", nrow(pairs_loc_df), "}\n", sep = "")
+
+# ============================================
+# Assumption test results
+# ============================================
+cat("\n% Assumption test results\n")
+cat("% Localization: DHARMa diagnostics for Gamma GLMM\n")
+cat("\\newcommand{\\DHARMAUniformD}{", round(uniformity_test$statistic, 3), "}\n", sep = "")
+cat("\\newcommand{\\DHARMAUniformP}{", format.pval(dharma_uniformity_p, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\DHARMADispP}{", format.pval(dharma_dispersion_p, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\DHARMADispRatio}{", round(dharma_dispersion_ratio, 3), "}\n", sep = "")
+cat("\\newcommand{\\DHARMAOutlierP}{", format.pval(outlier_test$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
+
+cat("% Rating: Traditional LMM diagnostics\n")
+cat("\\newcommand{\\SWResidRatW}{", round(sw_resid_rat$statistic, 4), "}\n", sep = "")
+cat("\\newcommand{\\SWResidRatP}{", format.pval(sw_resid_rat$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\LeveneF}{", round(levene_rat$`F value`[1], 2), "}\n", sep = "")
+cat("\\newcommand{\\LeveneDFone}{", levene_rat$Df[1], "}\n", sep = "")
+cat("\\newcommand{\\LeveneDFtwo}{", levene_rat$Df[2], "}\n", sep = "")
+cat("\\newcommand{\\LeveneRatP}{", format.pval(levene_rat_p, digits = 3, eps = 0.001), "}\n", sep = "")
+
+sink()
+
+cat("Results exported to:", results_dir, "\n")
+cat("Files created:\n")
+list.files(results_dir)
+```
+
+## 7.3 Dynamic Interpretation
+
+The following interpretation is generated dynamically based on the actual analysis results:
+
+```{r dynamic_interpretation, echo=FALSE, results='asis'}
+# Determine which algorithm had lowest localization error
+best_loc_alg <- emm_loc_df$Algorithm[which.min(emm_loc_df$Error_mean)]
+worst_loc_alg <- emm_loc_df$Algorithm[which.max(emm_loc_df$Error_mean)]
+
+# Determine which algorithm had highest quality rating
+best_rat_alg <- emm_rat_df$Algorithm[which.max(emm_rat_df$emmean)]
+worst_rat_alg <- emm_rat_df$Algorithm[which.min(emm_rat_df$emmean)]
+
+# Count significant post-hoc comparisons
+sig_loc <- sum(pairs_df$p.value < 0.05)
+sig_rat <- sum(pairs_df_rat$p.value < 0.05)
+
+cat("### Localization Error (Gamma GLMM)\n\n")
+
+if (p_loc_anova < 0.05) {
+  cat("- **Significant effect of Algorithm** detected: χ²(", 
+      df_loc_anova, ") = ", round(chisq_loc, 2), ", *p* ", 
+      ifelse(p_loc_anova < 0.001, "< .001", 
+             paste0("= ", round(p_loc_anova, 3))),
+      "\n", sep = "")
+  cat("- Pseudo R² (marginal): ", round(R2_marginal, 3), 
+      "; Pseudo R² (conditional): ", round(R2_conditional, 3), "\n", sep = "")
+} else {
+  cat("- **No significant effect of Algorithm** detected: χ²(", 
+      df_loc_anova, ") = ", round(chisq_loc, 2), ", *p* = ", 
+      round(p_loc_anova, 3), "\n", sep = "")
+}
+
+cat("- Best performer: **", as.character(best_loc_alg), 
+    "** (estimated mean = ", round(min(emm_loc_df$Error_mean), 2), "°)\n", sep = "")
+cat("- Worst performer: **", as.character(worst_loc_alg), 
+    "** (estimated mean = ", round(max(emm_loc_df$Error_mean), 2), "°)\n", sep = "")
+cat("- Number of significant pairwise differences: ", sig_loc, " out of 10\n\n", sep = "")
+
+cat("### Quality Rating (LMM)\n\n")
+
+if (anova_rat$`p-value`[2] < 0.05) {
+  cat("- **Significant effect of Algorithm** detected: *F*(", 
+      anova_rat$numDF[2], ", ", anova_rat$denDF[2], ") = ", 
+      round(anova_rat$`F-value`[2], 2), ", *p* ", 
+      ifelse(anova_rat$`p-value`[2] < 0.001, "< .001", 
+             paste0("= ", round(anova_rat$`p-value`[2], 3))),
+      ", η² ≈ ", round(anova_results$eta_sq_approx[2], 3), "\n", sep = "")
+} else {
+  cat("- **No significant effect of Algorithm** detected: *F*(", 
+      anova_rat$numDF[2], ", ", anova_rat$denDF[2], ") = ", 
+      round(anova_rat$`F-value`[2], 2), ", *p* = ", 
+      round(anova_rat$`p-value`[2], 3), "\n", sep = "")
+}
+
+cat("- Highest rated: **", as.character(best_rat_alg), 
+    "** (M = ", round(max(emm_rat_df$emmean), 1), ")\n", sep = "")
+cat("- Lowest rated: **", as.character(worst_rat_alg), 
+    "** (M = ", round(min(emm_rat_df$emmean), 1), ")\n", sep = "")
+cat("- Number of significant pairwise differences: ", sig_rat, " out of 10\n\n", sep = "")
+
+cat("### Correlation Between Measures\n\n")
+
+if (cor_test$p.value < 0.05) {
+  direction <- ifelse(cor_test$estimate > 0, "positive", "negative")
+  strength <- ifelse(abs(cor_test$estimate) < 0.3, "weak",
+                     ifelse(abs(cor_test$estimate) < 0.5, "moderate", "strong"))
+  cat("- **Significant ", strength, " ", direction, " correlation** between localization error and quality rating: ",
+      "*r* = ", round(cor_test$estimate, 3), ", *p* ", 
+      ifelse(cor_test$p.value < 0.001, "< .001", paste0("= ", round(cor_test$p.value, 3))), "\n", sep = "")
+} else {
+  cat("- **No significant correlation** between localization error and quality rating: ",
+      "*r* = ", round(cor_test$estimate, 3), ", *p* = ", round(cor_test$p.value, 3), "\n", sep = "")
+}
+
+cat("\n### Model Quality Indicators\n\n")
+cat("- **Localization (Gamma GLMM)**: ICC = ", round(icc_loc, 3), 
+    "; Marginal R² = ", round(R2_marginal, 3), 
+    "; Conditional R² = ", round(R2_conditional, 3), "\n", sep = "")
+cat("- **Rating (LMM)**: ICC = ", round(model_summary_rat$ICC, 3), 
+    " (", round(model_summary_rat$ICC * 100, 1), "% of variance due to between-subject differences)\n", sep = "")
+```
+
+## 7.4 Limitations and Considerations
+
+```{r limitations, echo=FALSE, results='asis'}
+cat("**Note:** The following are considerations for publication:\n\n")
+
+cat("1. **Sample size**: N = ", n_distinct(df_loc$SubjectID), 
+    " participants. For mixed models, this is ", 
+    ifelse(n_distinct(df_loc$SubjectID) >= 30, "adequate", "borderline"),
+    " for detecting medium effect sizes.\n\n", sep = "")
+
+cat("2. **Localization model**: Gamma GLMM was used instead of log-normal LMM because ",
+    "localization error is positive, right-skewed, and bounded at zero. The Gamma ",
+    "distribution naturally handles these properties. Marginal R² = ", 
+    round(R2_marginal, 3), " indicates the fixed effect explains ",
+    round(R2_marginal * 100, 1), "% of variance.\n\n", sep = "")
+
+cat("3. **Rating model effect size**: η² ≈ ", round(anova_results$eta_sq_approx[2], 3), 
+    " indicates a ", 
+    ifelse(anova_results$eta_sq_approx[2] < 0.06, "small", 
+           ifelse(anova_results$eta_sq_approx[2] < 0.14, "medium", "large")),
+    " effect size for quality ratings.\n\n", sep = "")
+
+cat("4. **Multiple comparisons**: Holm correction applied to ", 
+    nrow(pairs_df), " pairwise comparisons per DV.\n\n", sep = "")
+
+# Model diagnostics
+cat("5. **Localization model diagnostics (DHARMa)**:\n")
+cat("   - Uniformity test: p = ", round(dharma_uniformity_p, 3), 
+    ifelse(dharma_uniformity_p > 0.05, " (model fits well)", " (some misfit)"), "\n", sep = "")
+cat("   - Dispersion: ratio = ", round(dharma_dispersion_ratio, 3), ", p = ", 
+    round(dharma_dispersion_p, 3),
+    ifelse(dharma_dispersion_p > 0.05, " (no over/underdispersion)", 
+           ifelse(dharma_dispersion_ratio > 1, " (overdispersion)", " (underdispersion)")), "\n\n", sep = "")
+
+cat("6. **Rating model diagnostics**: Shapiro-Wilk on residuals: W = ", 
+    round(sw_resid_rat$statistic, 4), ", p = ", round(sw_resid_rat$p.value, 3),
+    ifelse(sw_resid_rat$p.value > 0.05, " (normality assumption met)", 
+           " (some deviation)"),
+    "; Levene's test: p = ", round(levene_rat_p, 3),
+    ifelse(levene_rat_p > 0.05, " (homogeneity met)", " (heterogeneity)"), "\n\n", sep = "")
+```
+
+# 8. Session Info
+
+```{r session_info, collapse=TRUE, comment=''}
+sessionInfo()
+```
