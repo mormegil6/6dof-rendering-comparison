@@ -45,7 +45,7 @@ knitr::opts_chunk$set(
 set.seed(42)
 
 # Create output directory for plots
-plot_dir <- "../plots_analysis3"
+plot_dir <- "../plots"
 if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
