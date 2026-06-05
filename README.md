@@ -1,16 +1,11 @@
-[![R](https://img.shields.io/badge/R-4.5-blue.svg)]()
-[![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]()
-[![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]()
-[![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]()
-[![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]()
-[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![R](https://img.shields.io/badge/R-4.5-blue.svg)]() [![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]() [![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]() [![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]() [![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]() [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 # 6DoF Rendering Comparison - Supplementary Materials
 
 Supplementary materials for the paper:
 
-**"Comparison of Six-Degrees-of-Freedom Rendering Algorithms for Classical Music Reproduction"**  
-Bartlomiej Mroz - *Archives of Acoustics*, 2026 [under review]
+***"Comparison of Six-Degrees-of-Freedom Rendering Algorithms for Classical Music Reproduction"***  
+Bartłomiej Mróz · *Archives of Acoustics*, 2026 [under review]
 
 This repository contains raw experimental data and reproducible analysis code
 supporting all reported statistics, figures, and tables in the paper.
@@ -113,11 +108,14 @@ If you use this data or analysis code, please cite the main paper:
 
 ## License
 
-Data and code are released under
-[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).
-You are free to share and adapt the material for any purpose, provided
-appropriate credit is given.
+This work is licensed under a [Creative Commons Attribution 4.0 International License][cc-by].
+
+[![CC BY 4.0][cc-by-image]][cc-by]
+
+[cc-by]: https://creativecommons.org/licenses/by/4.0/
+[cc-by-image]: https://i.creativecommons.org/l/by/4.0/88x31.png
+[cc-by-shield]: https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg
 
 ## Contact
 
-Bartlomiej Mroz - bartlomiej.mroz@pg.edu.pl - [bmroz.eu](https://bmroz.eu)
+Bartłomiej Mróz · bartlomiej.mroz@pg.edu.pl · [bmroz.eu](https://bmroz.eu) · Department of Multimedia Systems, Gdańsk University of Technology
