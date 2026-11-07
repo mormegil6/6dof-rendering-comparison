@@ -141,8 +141,8 @@ library(kableExtra)
 data_dir <- "../data"
 
 # Get all localization and MUSHRA files (excluding discarded)
-loc_files <- list.files(data_dir, pattern = "^PG-[0-9]+-.*-Localization\\.csv$", full.names = TRUE)
-mus_files <- list.files(data_dir, pattern = "^PG-[0-9]+-.*-MUSHRA\\.csv$", full.names = TRUE)
+loc_files <- list.files(data_dir, pattern = "^(PG|ZL)-[0-9]+-.*-Localization\\.csv$", full.names = TRUE)
+mus_files <- list.files(data_dir, pattern = "^(PG|ZL)-[0-9]+-.*-MUSHRA\\.csv$", full.names = TRUE)
 
 cat("Found", length(loc_files), "localization files\n")
 cat("Found", length(mus_files), "MUSHRA files\n")
@@ -151,19 +151,18 @@ cat("Found", length(mus_files), "MUSHRA files\n")
 read_participant_data <- function(filepath, type = "localization") {
   # Extract info from filename
   filename <- basename(filepath)
-  parts <- str_match(filename, "^PG-(\\d+[a-z]?)-(\\d+)-")
+  parts <- str_match(filename, "^(PG|ZL)-(\\d+[a-z]?)-(\\d+)-")
 
-  subject_id <- parts[2]
-  timestamp <- parts[3]
+  location <- parts[2]
+  subject_id <- parts[3]
+  timestamp <- parts[4]
   
-  # Read the file (semicolon separated, handle both comma and period decimals)
-  df <- tryCatch({
-    read_delim(filepath, delim = ";", locale = locale(decimal_mark = ","), 
-               show_col_types = FALSE)
-  }, error = function(e) {
-    read_delim(filepath, delim = ";", locale = locale(decimal_mark = "."), 
-               show_col_types = FALSE)
-  })
+  # Read the file (semicolon separated). Files from the two sites use different
+  # decimal marks (PG: comma, ZL: period); detect per file, because readr treats
+  # "." as a grouping mark under decimal_mark = ","
+  dec <- if (any(grepl(",", readLines(filepath, warn = FALSE)[-1]))) "," else "."
+  df <- read_delim(filepath, delim = ";", locale = locale(decimal_mark = dec),
+                   show_col_types = FALSE)
   
   # Ensure numeric columns are numeric (fixes type conflicts during bind_rows)
   if (type == "localization" && "Elevation" %in% names(df)) {
@@ -174,7 +173,8 @@ read_participant_data <- function(filepath, type = "localization") {
   }
   
   # Add metadata
-  df$SubjectID <- paste0("PG-", subject_id)
+  df$Location <- location
+  df$SubjectID <- paste0(location, "-", subject_id)
   df$Timestamp <- timestamp
   
   return(df)
@@ -485,6 +485,9 @@ if (nrow(excluded_conservative) > 0) {
   cat("\n### No Exclusions Applied\n")
   cat("All", n_subjects_original, "participants meet the quality criterion (Mean Error < 45°)\n")
 }
+
+# Keep ratings only from participants who passed localization screening
+df_rat <- df_rat %>% filter(SubjectID %in% unique(df_loc$SubjectID))
 
 # Drop unused factor levels after exclusion
 df_loc$SubjectID <- droplevels(df_loc$SubjectID)
@@ -1365,6 +1368,8 @@ exclusion_summary <- data.frame(
 write.csv(exclusion_summary, file.path(results_dir, "exclusion_summary.csv"), row.names = FALSE)
 
 # 9. Create a LaTeX-ready summary file
+# Fixed decimals so LaTeX tables keep trailing zeros (round() drops them)
+fmt <- function(x, digits) formatC(x, format = "f", digits = digits)
 sink(file.path(results_dir, "latex_values.tex"))
 cat("% Auto-generated statistics for LaTeX inclusion\n")
 cat("% Generated on:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n")
@@ -1378,32 +1383,34 @@ cat("\n% Sample sizes\n")
 cat("\\newcommand{\\nSubjects}{", n_distinct(df_loc$SubjectID), "}\n", sep = "")
 cat("\\newcommand{\\nObsLoc}{", nrow(df_loc), "}\n", sep = "")
 cat("\\newcommand{\\nObsRat}{", nrow(df_rat), "}\n", sep = "")
+cat("\\newcommand{\\nSubjectsLoc}{", n_distinct(df_loc$SubjectID), "}\n", sep = "")
+cat("\\newcommand{\\nSubjectsRat}{", n_distinct(df_rat$SubjectID), "}\n", sep = "")
 cat("\\newcommand{\\groundTruthAzimuth}{312}\n", sep = "")
 
 # Localization: Gamma GLMM - Chi-square test
 cat("\n% Localization Error: Gamma GLMM with log link\n")
-cat("\\newcommand{\\chisqLoc}{", round(chisq_loc, 2), "}\n", sep = "")
+cat("\\newcommand{\\chisqLoc}{", fmt(chisq_loc, 2), "}\n", sep = "")
 cat("\\newcommand{\\dfLoc}{", df_loc_anova, "}\n", sep = "")
 cat("\\newcommand{\\pvalLoc}{", format.pval(p_loc_anova, digits = 3, eps = 0.001), "}\n", sep = "")
-cat("\\newcommand{\\RsqMargLoc}{", round(R2_marginal, 3), "}\n", sep = "")
-cat("\\newcommand{\\RsqCondLoc}{", round(R2_conditional, 3), "}\n", sep = "")
+cat("\\newcommand{\\RsqMargLoc}{", fmt(R2_marginal, 3), "}\n", sep = "")
+cat("\\newcommand{\\RsqCondLoc}{", fmt(R2_conditional, 3), "}\n", sep = "")
 
 # ANOVA - Rating (LMM - F-test)
 cat("\n% Quality Rating: LMM\n")
 cat("\\newcommand{\\FdfRatNum}{", anova_rat$numDF[2], "}\n", sep = "")
 cat("\\newcommand{\\FdfRatDen}{", anova_rat$denDF[2], "}\n", sep = "")
-cat("\\newcommand{\\FvalRat}{", round(anova_rat$`F-value`[2], 2), "}\n", sep = "")
+cat("\\newcommand{\\FvalRat}{", fmt(anova_rat$`F-value`[2], 2), "}\n", sep = "")
 cat("\\newcommand{\\pvalRat}{", format.pval(anova_rat$`p-value`[2], digits = 3, eps = 0.001), "}\n", sep = "")
-cat("\\newcommand{\\etasqRat}{", round(anova_results$eta_sq_approx[2], 3), "}\n", sep = "")
+cat("\\newcommand{\\etasqRat}{", fmt(anova_results$eta_sq_approx[2], 3), "}\n", sep = "")
 
 # ICC values
 cat("\n% Intraclass Correlations\n")
-cat("\\newcommand{\\ICCLoc}{", round(icc_loc, 3), "}\n", sep = "")
-cat("\\newcommand{\\ICCRat}{", round(model_summary_rat$ICC, 3), "}\n", sep = "")
+cat("\\newcommand{\\ICCLoc}{", fmt(icc_loc, 3), "}\n", sep = "")
+cat("\\newcommand{\\ICCRat}{", fmt(model_summary_rat$ICC, 3), "}\n", sep = "")
 
 # Correlation
 cat("\n% Correlation between localization error and quality rating\n")
-cat("\\newcommand{\\corrR}{", round(cor_test$estimate, 2), "}\n", sep = "")
+cat("\\newcommand{\\corrR}{", fmt(cor_test$estimate, 2), "}\n", sep = "")
 cat("\\newcommand{\\corrP}{", format.pval(cor_test$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
 
 # Algorithm-specific EMMs for Localization (estimated means in degrees from Gamma GLMM)
@@ -1412,13 +1419,13 @@ for (i in 1:nrow(emm_loc_df)) {
   alg_name <- gsub("\\.", "", as.character(emm_loc_df$Algorithm[i]))  # Remove dots for LaTeX command
   alg_name <- gsub("6DoF", "SixDoF", alg_name)  # Replace 6DoF with SixDoF to avoid digit issues
   cat("\\newcommand{\\EMMLocMean", alg_name, "}{", 
-      round(emm_loc_df$Error_mean[i], 2), "}\n", sep = "")
+      fmt(emm_loc_df$Error_mean[i], 2), "}\n", sep = "")
   cat("\\newcommand{\\EMMLocSE", alg_name, "}{", 
-      round(emm_loc_df$SE[i], 2), "}\n", sep = "")
+      fmt(emm_loc_df$SE[i], 2), "}\n", sep = "")
   cat("\\newcommand{\\EMMLocLo", alg_name, "}{", 
-      round(emm_loc_df$Error_lower[i], 2), "}\n", sep = "")
+      fmt(emm_loc_df$Error_lower[i], 2), "}\n", sep = "")
   cat("\\newcommand{\\EMMLocHi", alg_name, "}{", 
-      round(emm_loc_df$Error_upper[i], 2), "}\n", sep = "")
+      fmt(emm_loc_df$Error_upper[i], 2), "}\n", sep = "")
 }
 
 # Algorithm-specific EMMs for Rating
@@ -1427,13 +1434,13 @@ for (i in 1:nrow(emm_rat_df)) {
   alg_name <- gsub("\\.", "", as.character(emm_rat_df$Algorithm[i]))
   alg_name <- gsub("6DoF", "SixDoF", alg_name)  # Replace 6DoF with SixDoF
   cat("\\newcommand{\\EMMRatMean", alg_name, "}{", 
-      round(emm_rat_df$emmean[i], 1), "}\n", sep = "")
+      fmt(emm_rat_df$emmean[i], 1), "}\n", sep = "")
   cat("\\newcommand{\\EMMRatSE", alg_name, "}{", 
-      round(emm_rat_df$SE[i], 2), "}\n", sep = "")
+      fmt(emm_rat_df$SE[i], 2), "}\n", sep = "")
   cat("\\newcommand{\\EMMRatLo", alg_name, "}{", 
-      round(emm_rat_df$lower.CL[i], 1), "}\n", sep = "")
+      fmt(emm_rat_df$lower.CL[i], 1), "}\n", sep = "")
   cat("\\newcommand{\\EMMRatHi", alg_name, "}{", 
-      round(emm_rat_df$upper.CL[i], 1), "}\n", sep = "")
+      fmt(emm_rat_df$upper.CL[i], 1), "}\n", sep = "")
 }
 
 # Best/worst performers
@@ -1444,13 +1451,13 @@ best_rat_idx <- which.max(emm_rat_df$emmean)
 worst_rat_idx <- which.min(emm_rat_df$emmean)
 
 cat("\\newcommand{\\bestLocAlg}{", as.character(emm_loc_df$Algorithm[best_loc_idx]), "}\n", sep = "")
-cat("\\newcommand{\\bestLocValue}{", round(emm_loc_df$Error_mean[best_loc_idx], 2), "}\n", sep = "")
+cat("\\newcommand{\\bestLocValue}{", fmt(emm_loc_df$Error_mean[best_loc_idx], 2), "}\n", sep = "")
 cat("\\newcommand{\\worstLocAlg}{", as.character(emm_loc_df$Algorithm[worst_loc_idx]), "}\n", sep = "")
-cat("\\newcommand{\\worstLocValue}{", round(emm_loc_df$Error_mean[worst_loc_idx], 2), "}\n", sep = "")
+cat("\\newcommand{\\worstLocValue}{", fmt(emm_loc_df$Error_mean[worst_loc_idx], 2), "}\n", sep = "")
 cat("\\newcommand{\\bestRatAlg}{", as.character(emm_rat_df$Algorithm[best_rat_idx]), "}\n", sep = "")
-cat("\\newcommand{\\bestRatValue}{", round(emm_rat_df$emmean[best_rat_idx], 1), "}\n", sep = "")
+cat("\\newcommand{\\bestRatValue}{", fmt(emm_rat_df$emmean[best_rat_idx], 1), "}\n", sep = "")
 cat("\\newcommand{\\worstRatAlg}{", as.character(emm_rat_df$Algorithm[worst_rat_idx]), "}\n", sep = "")
-cat("\\newcommand{\\worstRatValue}{", round(emm_rat_df$emmean[worst_rat_idx], 1), "}\n", sep = "")
+cat("\\newcommand{\\worstRatValue}{", fmt(emm_rat_df$emmean[worst_rat_idx], 1), "}\n", sep = "")
 
 # ============================================
 # ALL POST-HOC COMPARISONS for Localization (ratios from Gamma GLMM)
@@ -1466,13 +1473,13 @@ for (i in 1:nrow(pairs_loc_df)) {
   
   # Ratio
   cat("\\newcommand{\\pairLocRatio", contrast_clean, "}{", 
-      round(pairs_loc_df$ratio[i], 2), "}\n", sep = "")
+      fmt(pairs_loc_df$ratio[i], 2), "}\n", sep = "")
   # SE
   cat("\\newcommand{\\pairLocSE", contrast_clean, "}{", 
-      round(pairs_loc_df$SE[i], 2), "}\n", sep = "")
+      fmt(pairs_loc_df$SE[i], 2), "}\n", sep = "")
   # z-value
   cat("\\newcommand{\\pairLocZ", contrast_clean, "}{", 
-      round(pairs_loc_df$z.ratio[i], 2), "}\n", sep = "")
+      fmt(pairs_loc_df$z.ratio[i], 2), "}\n", sep = "")
   # p-value
   cat("\\newcommand{\\pairLocP", contrast_clean, "}{", 
       format.pval(pairs_loc_df$p.value[i], digits = 3, eps = 0.001), "}\n", sep = "")
@@ -1492,16 +1499,16 @@ for (i in 1:nrow(pairs_rat_df)) {
   
   # Difference (estimate)
   cat("\\newcommand{\\pairRatDiff", contrast_clean, "}{", 
-      round(pairs_rat_df$estimate[i], 1), "}\n", sep = "")
+      fmt(pairs_rat_df$estimate[i], 1), "}\n", sep = "")
   # SE
   cat("\\newcommand{\\pairRatSE", contrast_clean, "}{", 
-      round(pairs_rat_df$SE[i], 2), "}\n", sep = "")
+      fmt(pairs_rat_df$SE[i], 2), "}\n", sep = "")
   # t-value
   cat("\\newcommand{\\pairRatT", contrast_clean, "}{", 
-      round(pairs_rat_df$t.ratio[i], 2), "}\n", sep = "")
+      fmt(pairs_rat_df$t.ratio[i], 2), "}\n", sep = "")
   # df
   cat("\\newcommand{\\pairRatDF", contrast_clean, "}{", 
-      round(pairs_rat_df$df[i], 0), "}\n", sep = "")
+      fmt(pairs_rat_df$df[i], 0), "}\n", sep = "")
   # p-value
   cat("\\newcommand{\\pairRatP", contrast_clean, "}{", 
       format.pval(pairs_rat_df$p.value[i], digits = 3, eps = 0.001), "}\n", sep = "")
@@ -1518,16 +1525,16 @@ cat("\\newcommand{\\nTotalComparisons}{", nrow(pairs_loc_df), "}\n", sep = "")
 # ============================================
 cat("\n% Assumption test results\n")
 cat("% Localization: DHARMa diagnostics for Gamma GLMM\n")
-cat("\\newcommand{\\DHARMAUniformD}{", round(uniformity_test$statistic, 3), "}\n", sep = "")
+cat("\\newcommand{\\DHARMAUniformD}{", fmt(uniformity_test$statistic, 3), "}\n", sep = "")
 cat("\\newcommand{\\DHARMAUniformP}{", format.pval(dharma_uniformity_p, digits = 3, eps = 0.001), "}\n", sep = "")
 cat("\\newcommand{\\DHARMADispP}{", format.pval(dharma_dispersion_p, digits = 3, eps = 0.001), "}\n", sep = "")
-cat("\\newcommand{\\DHARMADispRatio}{", round(dharma_dispersion_ratio, 3), "}\n", sep = "")
+cat("\\newcommand{\\DHARMADispRatio}{", fmt(dharma_dispersion_ratio, 3), "}\n", sep = "")
 cat("\\newcommand{\\DHARMAOutlierP}{", format.pval(outlier_test$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
 
 cat("% Rating: Traditional LMM diagnostics\n")
-cat("\\newcommand{\\SWResidRatW}{", round(sw_resid_rat$statistic, 4), "}\n", sep = "")
+cat("\\newcommand{\\SWResidRatW}{", fmt(sw_resid_rat$statistic, 4), "}\n", sep = "")
 cat("\\newcommand{\\SWResidRatP}{", format.pval(sw_resid_rat$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
-cat("\\newcommand{\\LeveneF}{", round(levene_rat$`F value`[1], 2), "}\n", sep = "")
+cat("\\newcommand{\\LeveneF}{", fmt(levene_rat$`F value`[1], 2), "}\n", sep = "")
 cat("\\newcommand{\\LeveneDFone}{", levene_rat$Df[1], "}\n", sep = "")
 cat("\\newcommand{\\LeveneDFtwo}{", levene_rat$Df[2], "}\n", sep = "")
 cat("\\newcommand{\\LeveneRatP}{", format.pval(levene_rat_p, digits = 3, eps = 0.001), "}\n", sep = "")

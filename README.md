@@ -4,8 +4,8 @@
 
 Supplementary materials for the paper:
 
-***"Comparison of Six-Degrees-of-Freedom Rendering Algorithms for Classical Music Reproduction"***  
-Bartłomiej Mróz · *Archives of Acoustics*, 2026 [under review]
+***"Walking Through a Virtual Orchestra: Localization–Quality Trade-offs in Six-Degrees-of-Freedom Audio Rendering for Virtual Reality"***  
+Bartłomiej Mróz · manuscript in preparation
 
 This repository contains raw experimental data and reproducible analysis code
 supporting all reported statistics, figures, and tables in the paper.
@@ -15,8 +15,8 @@ supporting all reported statistics, figures, and tables in the paper.
 ```
 6dof-rendering-comparison/
 ├── data/
-│   ├── PG-*-Localization.csv   # Trial-level localization responses (27 participants)
-│   └── PG-*-MUSHRA.csv         # Quality rating responses
+│   ├── {PG,ZL}-*-Localization.csv   # Trial-level localization responses (35 participants)
+│   └── {PG,ZL}-*-MUSHRA.csv         # Quality rating responses (34 participants)
 ├── rdocs/
 │   └── 6DoF_rendering_comparison.Rmd   # Reproducible analysis script (R Markdown)
 ├── results/
@@ -29,10 +29,17 @@ supporting all reported statistics, figures, and tables in the paper.
 
 ## Data
 
-**Participants**: 27 (ages 25-50)  
+**Participants**: 36 tested (ages 25-50) at two sites running the same software:
+27 at Gdańsk University of Technology (`PG-*`) and 9 at Zylia sp. z o.o., Poznań (`ZL-*`)  
+**Analyzed**: 35 for localization, 34 for quality ratings (see below)  
 **Rendering algorithms**: 5 (ScnRot, Com.BinVR, Com.6DoF, Zyl.6DoF, Del.wgts)  
-**Total localization observations**: 135 (27 x 5)  
-**Total quality rating observations**: 135 (27 x 5)
+**Total localization observations**: 175 (35 x 5)  
+**Total quality rating observations**: 170 (34 x 5)
+
+Runs marked invalid by the experimenter during data collection are not included.
+As a result, ZL-106 (invalid localization run) is absent, and ZL-101 (invalid rating
+run) has localization data only. PG files use a decimal comma and ZL files a decimal
+period; the analysis script detects the decimal mark per file.
 
 **Experimental variables**:
 - `Algorithm`: Rendering algorithm (5 levels)

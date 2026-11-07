@@ -1,6 +1,6 @@
 # 6DoF Rendering Comparison — Statistical Analysis Results
 
-Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 27 participants · 5 algorithms
+Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 35 participants (localization), 34 (ratings) · 5 algorithms
 
 ---
 
@@ -8,15 +8,20 @@ Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 27 participants · 5
 
 | Parameter | Value |
 |-----------|-------|
-| Participants | 27 (ages 25–50) |
+| Participants tested | 36 (ages 25–50) at two sites: 27 at Gdańsk University of Technology (PG), 9 at Zylia sp. z o.o., Poznań (ZL) |
+| Analyzed participants | 35 localization, 34 quality rating |
 | Rendering algorithms | 5 |
-| Localization observations | 135 (27 × 5) |
-| Quality rating observations | 135 (27 × 5) |
+| Localization observations | 175 (35 × 5) |
+| Quality rating observations | 170 (34 × 5) |
 | Ground truth azimuth | 312° |
 | Localization model | Gamma GLMM, log link |
 | Quality rating model | Linear Mixed Model (LMM) |
 | Random effect | Participant intercept |
 | Post-hoc correction | Holm–Bonferroni |
+
+Runs marked invalid by the experimenter during data collection are not included in `data/`. As a result, ZL-106 (invalid localization run) is not included, and ZL-101 (invalid rating run) contributes localization data only. Ratings are analyzed only for participants who passed the localization screening (mean error ≤ 45°); all analyzed participants passed.
+
+PG files use a decimal comma and ZL files a decimal period. The script detects the decimal mark per file.
 
 ### Algorithms
 
@@ -24,7 +29,7 @@ Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 27 participants · 5
 |---|---|---|
 | ScnRot | IEM SceneRotator | 3DoF baseline |
 | Com.BinVR | COMPASS BinauralVR | Parametric, single HOA sphere |
-| Com.6DoF | COMPASS 6DoF | Parametric, multiple HOA spheres |
+| Com.6DoF | COMPASS 6DoF | Parametric, multiple HOA spheres (source tracker disabled; ambient stream only) |
 | Zyl.6DoF | Zylia 6DoF HOA Renderer | Loudness crossfading interpolation |
 | Del.wgts | Delaunay weights | Barycentric triangulation |
 
@@ -38,13 +43,13 @@ Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 27 participants · 5
 
 | Effect | χ² | df | p |
 |--------|------|-----|---------|
-| Algorithm | 41.89 | 4 | < 0.001 |
+| Algorithm | 50.51 | 4 | < 0.001 |
 
 **Pseudo R² (Nakagawa & Schielzeth):**
 
 | R² marginal | R² conditional | ICC (subject) |
 |---|---|---|
-| 0.174 | 0.221 | 0.056 |
+| 0.166 | 0.200 | 0.041 |
 
 Marginal R² reflects variance explained by Algorithm alone; conditional R² adds the participant random intercept.
 
@@ -54,15 +59,15 @@ Marginal R² reflects variance explained by Algorithm alone; conditional R² add
 
 | Effect | F | df₁ | df₂ | p | η² |
 |--------|------|-----|-----|---------|------|
-| Algorithm | 4.31 | 4 | 108 | 0.003 | 0.138 |
+| Algorithm | 3.87 | 4 | 132 | 0.005 | 0.105 |
 
 **Variance components:**
 
 | ICC (subject) |
 |---|
-| 0.275 |
+| 0.214 |
 
-27.5% of total variance in quality ratings is attributable to between-participant differences.
+21.4% of total variance in quality ratings is attributable to between-participant differences.
 
 ---
 
@@ -74,14 +79,14 @@ Model-estimated means on the response scale (degrees), back-transformed from Gam
 
 | Algorithm | EMM (°) | 95% CI lower | 95% CI upper |
 |-----------|---------|-------------|-------------|
-| ScnRot | 3.54 | 2.47 | 5.04 |
-| Zyl.6DoF | 7.10 | 5.00 | 10.08 |
-| Del.wgts | 11.28 | 7.97 | 15.95 |
-| Com.BinVR | 12.06 | 8.48 | 17.14 |
-| Com.6DoF | 13.71 | 9.69 | 19.36 |
+| ScnRot | 3.64 | 2.69 | 4.93 |
+| Zyl.6DoF | 7.74 | 5.74 | 10.42 |
+| Com.BinVR | 10.48 | 7.75 | 14.16 |
+| Del.wgts | 11.89 | 8.84 | 16.00 |
+| Com.6DoF | 13.59 | 10.11 | 18.24 |
 
-**Best localization accuracy:** ScnRot (3.54°) — the 3DoF baseline.  
-**Worst localization accuracy:** Com.6DoF (13.71°).
+**Best localization accuracy:** ScnRot (3.64°), the 3DoF baseline.  
+**Worst localization accuracy:** Com.6DoF (13.59°).
 
 ### 3.2 Quality Rating (0–100)
 
@@ -89,16 +94,16 @@ LMM estimated marginal means. Higher = better.
 
 | Algorithm | EMM | 95% CI lower | 95% CI upper |
 |-----------|-----|-------------|-------------|
-| ScnRot | 66.8 | 57.1 | 76.6 |
-| Del.wgts | 65.4 | 55.6 | 75.1 |
-| Com.BinVR | 63.4 | 53.6 | 73.1 |
-| Zyl.6DoF | 56.4 | 46.7 | 66.1 |
-| Com.6DoF | 46.5 | 36.8 | 56.2 |
+| Del.wgts | 65.4 | 56.8 | 74.1 |
+| ScnRot | 65.0 | 56.4 | 73.6 |
+| Com.BinVR | 63.6 | 55.0 | 72.3 |
+| Zyl.6DoF | 56.6 | 47.9 | 65.2 |
+| Com.6DoF | 48.2 | 39.5 | 56.8 |
 
-All estimates share SE = 4.74 (common random-effects structure).
+All estimates share SE = 4.25 (common random-effects structure).
 
-**Highest rated:** ScnRot (66.8) and Del.wgts (65.4).  
-**Lowest rated:** Com.6DoF (46.5).
+**Highest rated:** Del.wgts (65.4) and ScnRot (65.0), not different from each other.  
+**Lowest rated:** Com.6DoF (48.2).
 
 ---
 
@@ -111,35 +116,35 @@ Ratios from Gamma GLMM (log link). Ratio < 1 → numerator algorithm has smaller
 
 | Contrast | Ratio | SE | z | p (adj.) | Sig. |
 |---|---|---|---|---|---|
-| ScnRot / Com.BinVR | 0.299 | 0.071 | −5.03 | < 0.001 | *** |
-| ScnRot / Com.6DoF | 0.263 | 0.063 | −5.55 | < 0.001 | *** |
-| ScnRot / Zyl.6DoF | 0.505 | 0.119 | −2.92 | 0.027 | * |
-| ScnRot / Del.wgts | 0.320 | 0.076 | −4.76 | < 0.001 | *** |
-| Com.BinVR / Com.6DoF | 0.881 | 0.212 | −0.54 | 1.000 | |
-| Com.BinVR / Zyl.6DoF | 1.688 | 0.403 | +2.17 | 0.142 | |
-| Com.BinVR / Del.wgts | 1.069 | 0.255 | +0.28 | 1.000 | |
-| Com.6DoF / Zyl.6DoF | 1.916 | 0.459 | +2.72 | 0.040 | * |
-| Com.6DoF / Del.wgts | 1.213 | 0.289 | +0.81 | 1.000 | |
-| Zyl.6DoF / Del.wgts | 0.633 | 0.150 | −1.93 | 0.217 | |
+| ScnRot / Com.BinVR | 0.354 | 0.073 | −5.03 | < 0.001 | *** |
+| ScnRot / Com.6DoF | 0.274 | 0.056 | −6.28 | < 0.001 | *** |
+| ScnRot / Zyl.6DoF | 0.478 | 0.098 | −3.61 | 0.002 | ** |
+| ScnRot / Del.wgts | 0.312 | 0.064 | −5.69 | < 0.001 | *** |
+| Com.BinVR / Com.6DoF | 0.773 | 0.161 | −1.24 | 0.647 |  |
+| Com.BinVR / Zyl.6DoF | 1.349 | 0.279 | +1.45 | 0.590 |  |
+| Com.BinVR / Del.wgts | 0.882 | 0.182 | −0.61 | 1.000 |  |
+| Com.6DoF / Zyl.6DoF | 1.746 | 0.360 | +2.70 | 0.042 | * |
+| Com.6DoF / Del.wgts | 1.141 | 0.235 | +0.64 | 1.000 |  |
+| Zyl.6DoF / Del.wgts | 0.654 | 0.134 | −2.07 | 0.191 |  |
 
-**5 of 10 comparisons significant.** ScnRot is the best localisation algorithm, significantly outperforming all four 6DoF renderers. Among 6DoF renderers, Zyl.6DoF has significantly better localisation accuracy than Com.6DoF.
+**5 of 10 comparisons significant.** ScnRot is the best localization algorithm, significantly outperforming all four 6DoF renderers. Among 6DoF renderers, Zyl.6DoF has significantly better localization accuracy than Com.6DoF.
 
 ### 4.2 Quality Rating
 
-Differences from LMM (positive = numerator rated higher).
+Differences from LMM (positive = first algorithm rated higher).
 
 | Contrast | Diff. | SE | t | df | p (adj.) | Sig. |
 |---|---|---|---|---|---|---|
-| ScnRot − Com.BinVR | +3.5 | 5.71 | 0.61 | 108 | 1.000 | |
-| ScnRot − Com.6DoF | +20.3 | 5.71 | 3.56 | 108 | 0.006 | ** |
-| ScnRot − Zyl.6DoF | +10.4 | 5.71 | 1.83 | 108 | 0.494 | |
-| ScnRot − Del.wgts | +1.5 | 5.71 | 0.26 | 108 | 1.000 | |
-| Com.BinVR − Com.6DoF | +16.9 | 5.71 | 2.95 | 108 | 0.031 | * |
-| Com.BinVR − Zyl.6DoF | +7.0 | 5.71 | 1.22 | 108 | 0.901 | |
-| Com.BinVR − Del.wgts | −2.0 | 5.71 | −0.35 | 108 | 1.000 | |
-| Com.6DoF − Zyl.6DoF | −9.9 | 5.71 | −1.73 | 108 | 0.517 | |
-| Com.6DoF − Del.wgts | −18.9 | 5.71 | −3.30 | 108 | 0.012 | * |
-| Zyl.6DoF − Del.wgts | −9.0 | 5.71 | −1.57 | 108 | 0.597 | |
+| ScnRot − Com.BinVR | +1.4 | 5.33 | 0.25 | 132 | 1.000 |  |
+| ScnRot − Com.6DoF | +16.8 | 5.33 | 3.16 | 132 | 0.018 | * |
+| ScnRot − Zyl.6DoF | +8.4 | 5.33 | 1.59 | 132 | 0.692 |  |
+| ScnRot − Del.wgts | −0.4 | 5.33 | −0.08 | 132 | 1.000 |  |
+| Com.BinVR − Com.6DoF | +15.5 | 5.33 | 2.91 | 132 | 0.034 | * |
+| Com.BinVR − Zyl.6DoF | +7.1 | 5.33 | 1.33 | 132 | 0.742 |  |
+| Com.BinVR − Del.wgts | −1.8 | 5.33 | −0.34 | 132 | 1.000 |  |
+| Com.6DoF − Zyl.6DoF | −8.4 | 5.33 | −1.57 | 132 | 0.692 |  |
+| Com.6DoF − Del.wgts | −17.3 | 5.33 | −3.24 | 132 | 0.015 | * |
+| Zyl.6DoF − Del.wgts | −8.9 | 5.33 | −1.67 | 132 | 0.684 |  |
 
 **3 of 10 comparisons significant.** Com.6DoF is rated significantly lower than ScnRot, Com.BinVR, and Del.wgts.
 
@@ -147,27 +152,27 @@ Differences from LMM (positive = numerator rated higher).
 
 ## 5. Algorithm Rankings
 
-| Algorithm | Localisation rank (lower error = 1) | Quality rank (higher rating = 1) |
+| Algorithm | Localization rank (lower error = 1) | Quality rank (higher rating = 1) |
 |---|:---:|:---:|
-| ScnRot | **1** | **1** |
+| ScnRot | **1** | 2 |
 | Zyl.6DoF | 2 | 4 |
-| Del.wgts | 3 | 2 |
-| Com.BinVR | 4 | 3 |
+| Com.BinVR | 3 | 3 |
+| Del.wgts | 4 | **1** |
 | Com.6DoF | 5 | 5 |
 
-ScnRot (3DoF baseline) ranks first on both measures. Com.6DoF ranks last on both. The ranking is not monotone across the 6DoF methods: Zyl.6DoF shows comparatively better localisation while Del.wgts shows comparatively better quality ratings.
+ScnRot (3DoF baseline) localizes best; Del.wgts and ScnRot share the top of the quality ratings (difference 0.4 points). Com.6DoF ranks last on both. The ranking is not monotone across the 6DoF methods: Zyl.6DoF shows comparatively better localization, while Del.wgts shows comparatively better quality ratings.
 
 ---
 
 ## 6. Correlation Between Measures
 
-Pearson correlation between participant-level mean localization error and mean quality rating (N = 135 paired observations):
+Pearson correlation between localization error and quality rating (N = 170 paired observations):
 
 | r | t | df | p |
 |---|---|---|---|
-| −0.100 | −1.158 | 133 | 0.249 |
+| −0.056 | −0.723 | 168 | 0.471 |
 
-95% CI: [−0.264, +0.070]. No significant correlation between localization accuracy and perceived quality.
+95% CI: [−0.204, +0.096]. No significant correlation between localization accuracy and perceived quality.
 
 ---
 
@@ -177,8 +182,8 @@ Pearson correlation between participant-level mean localization error and mean q
 
 | Test | Statistic | p | Passed |
 |---|---|---|:---:|
-| Uniformity (KS) | D = 0.067 | 0.589 | ✓ |
-| Dispersion | ratio = 0.813 | 0.626 | ✓ |
+| Uniformity (KS) | D = 0.048 | 0.823 | ✓ |
+| Dispersion | ratio = 0.856 | 0.614 | ✓ |
 | Outliers | — | 1.000 | ✓ |
 
 All DHARMa diagnostics indicate satisfactory model fit.
@@ -187,7 +192,7 @@ All DHARMa diagnostics indicate satisfactory model fit.
 
 | Test | Statistic | p | Passed |
 |---|---|---|:---:|
-| Shapiro–Wilk (residuals) | W = 0.990 | 0.439 | ✓ |
-| Levene (variance homogeneity) | F = 1.083 | 0.368 | ✓ |
+| Shapiro–Wilk (residuals) | W = 0.990 | 0.264 | ✓ |
+| Levene (variance homogeneity) | F = 1.020 | 0.399 | ✓ |
 
 Normality and homoscedasticity assumptions are met.
