@@ -1128,11 +1128,10 @@ p_loc <- ggplot() +
              shape = 18, size = 5, color = "black") +
   geom_errorbar(data = ci_loc, aes(x = Algorithm, ymin = ymin, ymax = ymax), 
                 width = 0.2, linewidth = 1) +
-  scale_y_continuous(breaks = seq(0, 40, 5)) +
-  labs(title = "Localization Error by Algorithm",
-       subtitle = "Gamma GLMM estimated means with 95% CI; boxplot shows data distribution",
-       x = "Rendering Algorithm", 
-       y = "Localization Error (degrees)") +
+  scale_y_continuous(breaks = seq(0, 60, 10)) +
+  # No title or subtitle: the paper's figure caption describes the panel.
+  labs(x = "Rendering algorithm",
+       y = "Localization error (degrees)") +
   theme_pubclean() +
   theme(axis.text.x = element_text(size = 11, angle = 0))
 
@@ -1147,10 +1146,8 @@ p_rat <- ggplot() +
   geom_errorbar(data = ci_rat, aes(x = Algorithm, ymin = ymin, ymax = ymax), 
                 width = 0.2, linewidth = 1) +
   scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
-  labs(title = "Quality Rating by Algorithm",
-       subtitle = "Estimated marginal means with 95% CI; boxplot shows data distribution",
-       x = "Rendering Algorithm", 
-       y = "Quality Rating (0-100)") +
+  labs(x = "Rendering algorithm",
+       y = "Quality rating (0-100)") +
   theme_pubclean() +
   theme(axis.text.x = element_text(size = 11, angle = 0))
 
@@ -1202,10 +1199,10 @@ p_corr <- ggplot(df_merged, aes(x = Mean_Error, y = Mean_Rating, color = Algorit
   geom_point(size = 2, alpha = 0.7) +
   geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
   scale_color_viridis_d() +
-  labs(title = "Relationship between Localization Error and Quality Rating",
-       subtitle = paste0("Overall r = ", round(cor_test$estimate, 3)),
-       x = "Mean Localization Error (degrees)",
-       y = "Mean Quality Rating (0-100)") +
+  # One localization trial and one rating per participant and algorithm, so the axes show
+  # single values, not means. The overall r is reported in the paper's caption.
+  labs(x = "Localization error (degrees)",
+       y = "Quality rating (0-100)") +
   theme_pubclean()
 p_corr
 ggsave(file.path(plot_dir, "09_correlation_error_rating.png"), p_corr, 
