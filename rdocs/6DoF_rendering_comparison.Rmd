@@ -221,7 +221,7 @@ df_loc <- df_loc_raw %>%
     Log.Error = log(Error + 0.1)  # Add small constant to handle zeros
   ) %>%
   filter(!is.na(Algorithm)) %>%
-  dplyr::select(SubjectID, Timestamp, SongID, Algorithm, Azimuth, Elevation,
+  dplyr::select(SubjectID, Location, Timestamp, SongID, Algorithm, Azimuth, Elevation,
          AzimuthRef, Response, GroundTruth, Error, Log.Error)
 
 # Process Rating data  
@@ -233,7 +233,7 @@ df_rat <- df_rat_raw %>%
     Rating = as.numeric(Score)
   ) %>%
   filter(!is.na(Algorithm)) %>%
-  dplyr::select(SubjectID, Timestamp, SongID, Algorithm, Rating)
+  dplyr::select(SubjectID, Location, Timestamp, SongID, Algorithm, Rating)
 
 # Summary
 cat("Processed localization data:", nrow(df_loc), "observations\n")
@@ -1243,6 +1243,62 @@ kable(summary_findings,
 
 ## 7.2 Export Results for LaTeX
 
+## Sensitivity analyses
+
+Site effect, and robustness of the pairwise results when the author's own session (PG-004) or the second site (ZL) is excluded.
+
+```{r sensitivity, collapse=TRUE, comment=''}
+# Participants tested: everyone with at least one valid (non-discarded) run
+n_tested    <- n_distinct(c(df_loc_raw$SubjectID, df_rat_raw$SubjectID))
+ids_tested  <- unique(c(as.character(df_loc_raw$SubjectID), as.character(df_rat_raw$SubjectID)))
+n_tested_pg <- sum(startsWith(ids_tested, "PG-"))
+n_tested_zl <- sum(startsWith(ids_tested, "ZL-"))
+
+# Site as a fixed effect (likelihood-ratio tests, ML)
+site_loc_m0 <- glmmTMB(Error_pos ~ Algorithm + (1 | SubjectID), data = df_loc, family = Gamma(link = "log"))
+site_loc_m1 <- glmmTMB(Error_pos ~ Algorithm + Location + (1 | SubjectID), data = df_loc, family = Gamma(link = "log"))
+site_loc <- anova(site_loc_m0, site_loc_m1)
+site_rat_m0 <- lme(Rating ~ Algorithm, random = ~ 1 | SubjectID, data = df_rat, method = "ML")
+site_rat_m1 <- lme(Rating ~ Algorithm + Location, random = ~ 1 | SubjectID, data = df_rat, method = "ML")
+site_rat <- anova(site_rat_m0, site_rat_m1)
+site_loc_chisq <- site_loc$Chisq[2]; site_loc_p <- site_loc$`Pr(>Chisq)`[2]
+site_rat_chisq <- site_rat$L.Ratio[2]; site_rat_p <- site_rat$`p-value`[2]
+
+# Refit the main models on a subset and collect Holm-adjusted pairwise results
+fit_subset <- function(keep) {
+  dl <- droplevels(df_loc[keep(df_loc$SubjectID), ])
+  dr <- droplevels(df_rat[keep(df_rat$SubjectID), ])
+  gl <- glmmTMB(Error_pos ~ Algorithm + (1 | SubjectID), data = dl, family = Gamma(link = "log"))
+  lr <- lme(Rating ~ Algorithm, random = ~ 1 | SubjectID, data = dr, method = "REML")
+  pl <- as.data.frame(summary(pairs(emmeans(gl, ~ Algorithm, type = "response"), adjust = "holm")))
+  pr <- as.data.frame(summary(pairs(emmeans(lr, ~ Algorithm), adjust = "holm")))
+  list(n_loc = n_distinct(dl$SubjectID), n_rat = n_distinct(dr$SubjectID),
+       chisq = car::Anova(gl, type = "II")$Chisq[1], p_loc = car::Anova(gl, type = "II")$`Pr(>Chisq)`[1],
+       F = anova(lr)$`F-value`[2], p_rat = anova(lr)$`p-value`[2], pl = pl, pr = pr,
+       sig_loc = sort(as.character(pl$contrast[pl$p.value < 0.05])),
+       sig_rat = sort(as.character(pr$contrast[pr$p.value < 0.05])))
+}
+pair_p <- function(tab, a, b) {
+  hit <- grepl(a, tab$contrast, fixed = TRUE) & grepl(b, tab$contrast, fixed = TRUE)
+  stopifnot(sum(hit) == 1)
+  tab$p.value[hit]
+}
+sens_full     <- fit_subset(function(id) rep(TRUE, length(id)))
+sens_noauthor <- fit_subset(function(id) id != "PG-004")
+sens_nosite2  <- fit_subset(function(id) !startsWith(as.character(id), "ZL-"))
+same_set_nosite2 <- identical(sens_full$sig_loc, sens_nosite2$sig_loc) && identical(sens_full$sig_rat, sens_nosite2$sig_rat)
+
+cat("Tested:", n_tested, "(PG", n_tested_pg, ", ZL", n_tested_zl, ")\n")
+cat("Site LRT, localization: chisq =", round(site_loc_chisq, 2), ", p =", round(site_loc_p, 3), "\n")
+cat("Site LRT, ratings: L.Ratio =", round(site_rat_chisq, 2), ", p =", round(site_rat_p, 3), "\n")
+for (s in list(list("all", sens_full), list("without PG-004", sens_noauthor), list("without ZL", sens_nosite2))) {
+  cat("\n", s[[1]], ": N loc", s[[2]]$n_loc, ", N rat", s[[2]]$n_rat,
+      "\n  significant localization pairs:", paste(s[[2]]$sig_loc, collapse = "; "),
+      "\n  significant rating pairs:", paste(s[[2]]$sig_rat, collapse = "; "), "\n")
+}
+cat("\nSame significant pairs without ZL:", same_set_nosite2, "\n")
+```
+
 ```{r export_results, collapse=TRUE, comment=''}
 # Create results directory
 results_dir <- "../results"
@@ -1538,6 +1594,34 @@ cat("\\newcommand{\\LeveneF}{", fmt(levene_rat$`F value`[1], 2), "}\n", sep = ""
 cat("\\newcommand{\\LeveneDFone}{", levene_rat$Df[1], "}\n", sep = "")
 cat("\\newcommand{\\LeveneDFtwo}{", levene_rat$Df[2], "}\n", sep = "")
 cat("\\newcommand{\\LeveneRatP}{", format.pval(levene_rat_p, digits = 3, eps = 0.001), "}\n", sep = "")
+
+
+# Sample counts, derived ratios and sensitivity analyses
+cat("\n% Participants tested (at least one valid run)\n")
+cat("\\newcommand{\\nSubjectsTested}{", n_tested, "}\n", sep = "")
+cat("\\newcommand{\\nSubjectsTestedPG}{", n_tested_pg, "}\n", sep = "")
+cat("\\newcommand{\\nSubjectsTestedZL}{", n_tested_zl, "}\n", sep = "")
+cat("\n% Derived localization ratios (EMM ratios relative to ScnRot)\n")
+emm_ratio <- setNames(emm_loc_df$Error_mean / emm_loc_df$Error_mean[emm_loc_df$Algorithm == "ScnRot"], emm_loc_df$Algorithm)
+sixdof_ratio <- emm_ratio[names(emm_ratio) != "ScnRot"]
+cat("\\newcommand{\\ratioLocMinSixDoF}{", fmt(min(sixdof_ratio), 1), "}\n", sep = "")
+cat("\\newcommand{\\ratioLocMaxSixDoF}{", fmt(max(sixdof_ratio), 1), "}\n", sep = "")
+cat("\\newcommand{\\ratioLocDelwgtsScnRot}{", fmt(emm_ratio[["Del.wgts"]], 1), "}\n", sep = "")
+cat("\\newcommand{\\pctLowerScnRotVsComBinVR}{", fmt(100 * (1 - pairs_loc_df$ratio[pairs_loc_df$contrast == "ScnRot / Com.BinVR"]), 0), "}\n", sep = "")
+cat("\n% Site as fixed effect (likelihood-ratio tests)\n")
+cat("\\newcommand{\\siteLocChisq}{", fmt(site_loc_chisq, 2), "}\n", sep = "")
+cat("\\newcommand{\\siteLocP}{", fmt(site_loc_p, 2), "}\n", sep = "")
+cat("\\newcommand{\\siteRatChisq}{", fmt(site_rat_chisq, 2), "}\n", sep = "")
+cat("\\newcommand{\\siteRatP}{", fmt(site_rat_p, 2), "}\n", sep = "")
+cat("\n% Sensitivity: without the author's session (PG-004)\n")
+cat("\\newcommand{\\nSigLocNoAuthor}{", length(sens_noauthor$sig_loc), "}\n", sep = "")
+cat("\\newcommand{\\nSigRatNoAuthor}{", length(sens_noauthor$sig_rat), "}\n", sep = "")
+cat("\\newcommand{\\pLocZylComSixDoFNoAuthor}{", format.pval(pair_p(sens_noauthor$pl, "Zyl.6DoF", "Com.6DoF"), digits = 2, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\pRatComBinVRComSixDoFNoAuthor}{", format.pval(pair_p(sens_noauthor$pr, "Com.BinVR", "Com.6DoF"), digits = 2, eps = 0.001), "}\n", sep = "")
+cat("\n% Sensitivity: without the second site (ZL)\n")
+cat("\\newcommand{\\nSigLocNoSiteTwo}{", length(sens_nosite2$sig_loc), "}\n", sep = "")
+cat("\\newcommand{\\nSigRatNoSiteTwo}{", length(sens_nosite2$sig_rat), "}\n", sep = "")
+cat("% Same significant pairs without ZL as with all participants: ", same_set_nosite2, "\n", sep = "")
 
 sink()
 

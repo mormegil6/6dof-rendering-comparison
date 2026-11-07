@@ -19,7 +19,7 @@ Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 35 participants (loc
 | Random effect | Participant intercept |
 | Post-hoc correction | Holm–Bonferroni |
 
-Runs marked invalid by the experimenter during data collection are not included in `data/`. As a result, ZL-106 (invalid localization run) is not included, and ZL-101 (invalid rating run) contributes localization data only. Ratings are analyzed only for participants who passed the localization screening (mean error ≤ 45°); all analyzed participants passed.
+Runs marked invalid by the experimenter during data collection are not included in `data/`. ZL-106 has a rating file but no valid localization run and is therefore excluded from the rating analysis; ZL-101 (invalid rating run) contributes localization data only. Ratings are analyzed only for participants who passed the localization screening (mean error ≤ 45°); all analyzed participants passed.
 
 PG files use a decimal comma and ZL files a decimal period. The script detects the decimal mark per file.
 
@@ -196,3 +196,14 @@ All DHARMa diagnostics indicate satisfactory model fit.
 | Levene (variance homogeneity) | F = 1.020 | 0.399 | ✓ |
 
 Normality and homoscedasticity assumptions are met.
+
+---
+
+## 8. Sensitivity Analyses
+
+| Check | Result |
+|---|---|
+| Site (PG vs ZL) as fixed effect, localization | LR χ²(1) = 0.01, p = 0.92 |
+| Site (PG vs ZL) as fixed effect, ratings | LR χ²(1) = 0.33, p = 0.57 |
+| Without the second site (ZL) | 5 of 10 localization and 3 of 10 rating comparisons significant: the same pairs as with all participants |
+| Without the author's session (PG-004) | 4 of 10 localization and 2 of 10 rating comparisons significant; Com.6DoF / Zyl.6DoF (localization) p = 0.081, Com.BinVR − Com.6DoF (ratings) p = 0.095 are no longer significant |

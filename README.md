@@ -16,7 +16,7 @@ supporting all reported statistics, figures, and tables in the paper.
 6dof-rendering-comparison/
 ├── data/
 │   ├── {PG,ZL}-*-Localization.csv   # Trial-level localization responses (35 participants)
-│   └── {PG,ZL}-*-MUSHRA.csv         # Quality rating responses (34 participants)
+│   └── {PG,ZL}-*-MUSHRA.csv         # Quality rating responses (35 files; 34 analyzed)
 ├── rdocs/
 │   └── 6DoF_rendering_comparison.Rmd   # Reproducible analysis script (R Markdown)
 ├── results/
@@ -36,10 +36,23 @@ supporting all reported statistics, figures, and tables in the paper.
 **Total localization observations**: 175 (35 x 5)  
 **Total quality rating observations**: 170 (34 x 5)
 
-Runs marked invalid by the experimenter during data collection are not included.
-As a result, ZL-106 (invalid localization run) is absent, and ZL-101 (invalid rating
-run) has localization data only. PG files use a decimal comma and ZL files a decimal
-period; the analysis script detects the decimal mark per file.
+**Files are the raw logs, unmodified** (byte-identical to the files written by the
+test application). Runs marked invalid by the experimenter during data collection
+are not included. As a result:
+- ZL-106 has a rating file but no valid localization run; the script therefore
+  excludes this participant from the rating analysis (ratings are analyzed only for
+  participants with a valid localization run). Hence 36 tested, 35 analyzed for
+  localization, 34 for ratings.
+- ZL-101 has localization data only (invalid rating run).
+
+**Decimal separator.** PG files use a decimal comma and ZL files a decimal period.
+The files are not edited; instead, `read_participant_data()` in the Rmd detects the
+decimal mark of each file before parsing it. (Parsing period-decimal files with a
+comma locale silently turns `158.8585` into `1588585`, which is why this step matters.)
+
+**Sensitivity analyses** (in the Rmd, chunk `sensitivity`; values in
+`results/latex_values.tex`): site as a fixed effect, and all pairwise comparisons
+refitted without the author's own session (PG-004) and without the second site (ZL).
 
 **Experimental variables**:
 - `Algorithm`: Rendering algorithm (5 levels)
