@@ -1,6 +1,6 @@
 # 6DoF Rendering Comparison — Statistical Analysis Results
 
-Generated from `rdocs/6DoF_rendering_comparison.Rmd` · N = 35 participants (localization), 34 (ratings) · 5 algorithms
+Summary of the results produced by `rdocs/6DoF_rendering_comparison.Rmd` · N = 35 participants (localization), 34 (ratings) · 5 algorithms
 
 ---
 
@@ -55,7 +55,7 @@ Marginal R² reflects variance explained by Algorithm alone; conditional R² add
 
 ### 2.2 Quality Rating (LMM)
 
-**Type III F-test:**
+**F-test (anova.lme; single fixed factor, so sequential = marginal):**
 
 | Effect | F | df₁ | df₂ | p | η² |
 |--------|------|-----|-----|---------|------|

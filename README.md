@@ -1,4 +1,4 @@
-[![R](https://img.shields.io/badge/R-4.5-blue.svg)]() [![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]() [![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]() [![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]() [![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]() [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![R](https://img.shields.io/badge/R-4.4.1-blue.svg)]() [![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]() [![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]() [![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]() [![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]() [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 # 6DoF Rendering Comparison - Supplementary Materials
 
@@ -73,14 +73,22 @@ with third-order Ambisonics.
 
 ```r
 install.packages(c(
+  "rmarkdown", "knitr", "kableExtra",
   "tidyverse",
   "glmmTMB",   # Gamma GLMM for localization error
   "nlme",      # LMM for quality ratings
-  "lmerTest",
+  "car",       # Type II Wald test, Brown-Forsythe (median-centred Levene) test
   "emmeans",   # Estimated marginal means and post-hoc comparisons
+  "multcomp",
   "DHARMa",    # Simulation-based residual diagnostics
-  "MuMIn"      # R squared for mixed models
+  "MASS",
+  "ggpubr", "gridExtra", "viridis"
 ))
+```
+
+The paper's values were produced with R 4.4.1.
+
+```
 ```
 
 ### Run the Analysis
@@ -98,10 +106,14 @@ Rscript -e "rmarkdown::render('6DoF_rendering_comparison.Rmd')"
 The script produces:
 
 - **`results/latex_values.tex`** - LaTeX `\newcommand` macros for all reported
-  statistics; included directly by the paper's main.tex
-- **`results/analysis_report.html`** - Full rendered analysis with all figures
-  and diagnostic plots
+  statistics, included directly by the paper's LaTeX source (the copy committed
+  here is the one used for the paper)
+- **`rdocs/6DoF_rendering_comparison.html`** - Full rendered analysis with all
+  figures and diagnostic plots
 - **`plots/`** - Individual figure files (PNG)
+
+`results/analysis_report.md` is a hand-written summary of the rendered results
+for reading without R.
 
 All reported numerical values in the paper are auto-generated from
 `latex_values.tex`; re-running the script on the provided data exactly
@@ -114,7 +126,11 @@ reproduces the paper's statistics.
 | Localization error (deg) | Gamma GLMM | log |
 | Quality rating (0-100) | LMM | identity |
 
-Both models include participant as a random intercept.
+Both models include participant as a random intercept. The localization main
+effect is a Type II Wald chi-square test (`car::Anova`); the rating main effect is
+the F-test of `anova.lme` (one fixed factor, so sequential and marginal tests
+coincide); variance homogeneity is tested with the Brown-Forsythe variant of
+Levene's test (`car::leveneTest(center = median)`).
 Post-hoc pairwise comparisons use Holm-Bonferroni correction.
 Model fit was assessed using simulation-based residual diagnostics (DHARMa).
 

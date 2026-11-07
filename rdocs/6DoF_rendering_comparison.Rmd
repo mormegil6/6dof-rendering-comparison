@@ -92,10 +92,11 @@ This analysis examines the comparison of six-degrees-of-freedom (6DoF) audio ren
 
 ## 1.4 Participants
 
-**N = 27** participants from:
+**36** participants tested (27 PG, 9 ZL); 35 analyzed for localization, 34 for ratings. Participants were:
 
 - Academic staff of Multimedia Systems Department, Gdańsk University of Technology
 - Members of Academic Choir of Gdańsk University of Technology
+- Staff of Zylia sp. z o.o. (second site)
 - Audio industry professionals
 
 All had at least amateur music education or were audio professionals.
@@ -204,8 +205,7 @@ algorithm_map <- c(
   "Zylia2" = "Del.wgts"        # Delaunay triangulation with barycentric weights
 )
 
-# Note: The raw file algorithm names need verification with the original experiment design
-# The mapping above is based on context from dissertation and previous analyses
+# Mapping verified against the final Max patch (route Sparta Zylia1 Zylia2 Reference Sparta3DoF)
 
 # Process Localization data
 df_loc <- df_loc_raw %>%
@@ -213,8 +213,8 @@ df_loc <- df_loc_raw %>%
     Algorithm = dplyr::recode(AlgorithmName, !!!algorithm_map),
     Algorithm = factor(Algorithm, levels = c("ScnRot", "Com.BinVR", "Com.6DoF", "Zyl.6DoF", "Del.wgts")),
     SubjectID = factor(SubjectID),
-    # Ground truth azimuth (soprano soloist position - typically around 312°)
-    GroundTruth = 312,  # This should be verified with experiment design
+    # Ground truth azimuth of the soprano soloist (experiment design)
+    GroundTruth = 312,
     # Calculate localization error (circular distance)
     Response = (Azimuth + AzimuthRef) %% 360,  # Combine to get absolute response
     Error = abs((Response - GroundTruth + 180) %% 360 - 180),  # Circular difference
@@ -1054,7 +1054,7 @@ cat("  Percentage:", round(100 * n_extreme_rat / length(std_resid_rat), 1), "%\n
 ### 5.2.5 ANOVA and Post-hoc Tests
 
 ```{r lmm_rat_anova, collapse=TRUE, comment=''}
-cat("Analysis of Variance (Type III)\n\n")
+cat("F-test (anova.lme; single fixed factor, so sequential = marginal)\n\n")
 anova_rat <- anova(selected_model_rat)
 print(anova_rat)
 
@@ -1622,6 +1622,22 @@ cat("\n% Sensitivity: without the second site (ZL)\n")
 cat("\\newcommand{\\nSigLocNoSiteTwo}{", length(sens_nosite2$sig_loc), "}\n", sep = "")
 cat("\\newcommand{\\nSigRatNoSiteTwo}{", length(sens_nosite2$sig_rat), "}\n", sep = "")
 cat("% Same significant pairs without ZL as with all participants: ", same_set_nosite2, "\n", sep = "")
+cat("\\newcommand{\\siteLocDf}{", site_loc$Df[2] - site_loc$Df[1], "}\n", sep = "")
+cat("\\newcommand{\\siteRatDf}{", site_rat$df[2] - site_rat$df[1], "}\n", sep = "")
+cat("\\newcommand{\\chisqLocNoAuthor}{", fmt(sens_noauthor$chisq, 2), "}\n", sep = "")
+cat("\\newcommand{\\pLocNoAuthor}{", format.pval(sens_noauthor$p_loc, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\FRatNoAuthor}{", fmt(sens_noauthor$F, 2), "}\n", sep = "")
+cat("\\newcommand{\\pRatNoAuthor}{", format.pval(sens_noauthor$p_rat, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\n% Significance stars for the pairwise tables (*** p<.001, ** p<.01, * p<.05)\n")
+stars <- function(p) as.character(symnum(p, corr = FALSE, na = FALSE, cutpoints = c(0, 0.001, 0.01, 0.05, 1), symbols = c("***", "**", "*", "")))
+for (i in seq_len(nrow(pairs_loc_df))) {
+  k <- gsub("6DoF", "SixDoF", gsub("\\.", "", gsub(" / ", "Vs", pairs_loc_df$contrast[i])))
+  cat("\\newcommand{\\pairLocStar", k, "}{", stars(pairs_loc_df$p.value[i]), "}\n", sep = "")
+}
+for (i in seq_len(nrow(pairs_rat_df))) {
+  k <- gsub("6DoF", "SixDoF", gsub("\\.", "", gsub(" - ", "Vs", pairs_rat_df$contrast[i])))
+  cat("\\newcommand{\\pairRatStar", k, "}{", stars(pairs_rat_df$p.value[i]), "}\n", sep = "")
+}
 
 sink()
 
