@@ -174,6 +174,18 @@ Pearson correlation between localization error and quality rating (N = 170 paire
 
 95% CI: [−0.204, +0.096]. No significant correlation between localization accuracy and perceived quality.
 
+Per algorithm (34 participants with both measures each; Holm adjustment across the five algorithms):
+
+| Algorithm | r | p | p (Holm) |
+|---|---|---|---|
+| ScnRot | −0.089 | 0.618 | 1.000 |
+| Com.BinVR | −0.212 | 0.229 | 0.916 |
+| Com.6DoF | −0.018 | 0.920 | 1.000 |
+| Zyl.6DoF | +0.334 | 0.053 | 0.267 |
+| Del.wgts | +0.046 | 0.798 | 1.000 |
+
+None is significant. The correlation figure (`09_correlation_error_rating.png`) shows the algorithm EMMs with 95% CIs over the individual values and per-algorithm least-squares lines; its error axis ends at 32°, so the three largest errors (up to 55°) are not drawn.
+
 ---
 
 ## 7. Model Diagnostics

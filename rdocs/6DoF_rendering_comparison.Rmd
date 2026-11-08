@@ -1181,32 +1181,64 @@ cor_test <- cor.test(df_merged$Mean_Error, df_merged$Mean_Rating, method = "pear
 cat("Pearson correlation between Error and Rating:\n")
 cat("r =", round(cor_test$estimate, 3), ", p =", format.pval(cor_test$p.value, digits = 3), "\n\n")
 
-# Correlation by algorithm
+# Correlation by algorithm (participants with both measures), Holm-adjusted across the five algorithms
 cor_by_alg <- df_merged %>%
+  filter(!is.na(Mean_Error), !is.na(Mean_Rating)) %>%
   group_by(Algorithm) %>%
   summarise(
-    r = cor(Mean_Error, Mean_Rating, use = "complete.obs"),
+    r = cor(Mean_Error, Mean_Rating),
+    p = cor.test(Mean_Error, Mean_Rating)$p.value,
     n = n(),
     .groups = "drop"
-  )
+  ) %>%
+  mutate(p_holm = p.adjust(p, method = "holm"))
 
 kable(cor_by_alg, digits = 3,
       caption = "Correlation between Error and Rating by Algorithm") %>%
   kable_styling(bootstrap_options = c("striped", "hover"))
 
-# Scatter plot
-p_corr <- ggplot(df_merged, aes(x = Mean_Error, y = Mean_Rating, color = Algorithm)) +
-  geom_point(size = 2, alpha = 0.7) +
-  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
-  scale_color_viridis_d() +
-  # One localization trial and one rating per participant and algorithm, so the axes show
-  # single values, not means. The overall r is reported in the paper's caption.
-  labs(x = "Localization error (degrees)",
-       y = "Quality rating (0-100)") +
-  theme_pubclean()
+# Scatter plot at two levels, sized for one IEEE column (3.5 in):
+# - faint points and dashed least-squares lines: individual participants, per algorithm
+#   (one localization trial and one rating per participant and algorithm, so the axes show
+#   single values, not means);
+# - crosses: algorithm EMMs with 95% CIs from the two models (as in the EMM tables).
+# The x axis is cut at corr_xmax degrees; the few larger errors are not drawn, but the lines
+# and EMMs use all data. The overall r and the cut are reported in the paper's caption.
+df_corr <- df_merged %>% filter(!is.na(Mean_Error), !is.na(Mean_Rating))
+corr_xmax <- 32
+corr_n_hidden <- sum(df_corr$Mean_Error > corr_xmax)
+ci_both <- ci_loc %>%
+  transmute(Algorithm = as.character(Algorithm), lx = y, lxmin = ymin, lxmax = ymax) %>%
+  left_join(ci_rat %>% transmute(Algorithm = as.character(Algorithm), ry = y, rymin = ymin, rymax = ymax),
+            by = "Algorithm") %>%
+  mutate(Algorithm = factor(Algorithm, levels = levels(df_corr$Algorithm)))
+
+p_corr <- ggplot() +
+  geom_point(data = df_corr, aes(Mean_Error, Mean_Rating, colour = Algorithm), size = 0.9, alpha = 0.45) +
+  geom_smooth(data = df_corr, aes(Mean_Error, Mean_Rating, colour = Algorithm), method = "lm",
+              formula = y ~ x, se = FALSE, linetype = "dashed", linewidth = 0.45) +
+  geom_errorbar(data = ci_both, aes(x = lx, ymin = rymin, ymax = rymax), colour = "black",
+                width = 0, linewidth = 1.3) +
+  geom_errorbar(data = ci_both, aes(y = ry, xmin = lxmin, xmax = lxmax), colour = "black",
+                width = 0, linewidth = 1.3, orientation = "y") +
+  geom_errorbar(data = ci_both, aes(x = lx, ymin = rymin, ymax = rymax, colour = Algorithm),
+                width = 0, linewidth = 0.7) +
+  geom_errorbar(data = ci_both, aes(y = ry, xmin = lxmin, xmax = lxmax, colour = Algorithm),
+                width = 0, linewidth = 0.7, orientation = "y") +
+  geom_point(data = ci_both, aes(lx, ry, fill = Algorithm), shape = 21, colour = "black",
+             size = 2.2, stroke = 0.6) +
+  scale_color_viridis_d(end = 0.85, drop = FALSE) +
+  scale_fill_viridis_d(end = 0.85, guide = "none") +
+  scale_x_continuous(breaks = seq(0, 30, 5)) +
+  scale_y_continuous(breaks = seq(0, 100, 20)) +
+  coord_cartesian(xlim = c(0, corr_xmax), ylim = c(0, 100)) +
+  labs(x = "Localization error (degrees)", y = "Quality rating (0-100)") +
+  theme_pubclean(base_size = 8) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        legend.key.size = unit(8, "pt"), legend.text = element_text(size = 7))
 p_corr
-ggsave(file.path(plot_dir, "09_correlation_error_rating.png"), p_corr, 
-       width = 8, height = 5, dpi = 300)
+ggsave(file.path(plot_dir, "09_correlation_error_rating.png"), p_corr,
+       width = 3.5, height = 2.9, dpi = 300)
 ```
 
 # 7. Summary and Conclusions
@@ -1465,6 +1497,12 @@ cat("\\newcommand{\\ICCRat}{", fmt(model_summary_rat$ICC, 3), "}\n", sep = "")
 cat("\n% Correlation between localization error and quality rating\n")
 cat("\\newcommand{\\corrR}{", fmt(cor_test$estimate, 2), "}\n", sep = "")
 cat("\\newcommand{\\corrP}{", format.pval(cor_test$p.value, digits = 3, eps = 0.001), "}\n", sep = "")
+cat("\\newcommand{\\corrAlgMaxAbsR}{", fmt(max(abs(cor_by_alg$r)), 2), "}\n", sep = "")
+cat("\\newcommand{\\corrAlgMinPHolm}{", fmt(min(cor_by_alg$p_holm), 2), "}\n", sep = "")
+cat("\\newcommand{\\corrAlgN}{", min(cor_by_alg$n), "}\n", sep = "")
+cat("\\newcommand{\\corrXmax}{", corr_xmax, "}\n", sep = "")
+cat("\\newcommand{\\corrNHidden}{", corr_n_hidden, "}\n", sep = "")
+cat("\\newcommand{\\corrMaxErr}{", fmt(max(df_corr$Mean_Error), 0), "}\n", sep = "")
 
 # Algorithm-specific EMMs for Localization (estimated means in degrees from Gamma GLMM)
 cat("\n% Localization EMMs (estimated mean in degrees from Gamma GLMM)\n")
