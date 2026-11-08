@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use these data or this analysis code, please cite the paper below and this dataset."
+type: dataset
+title: "6DoF Rendering Comparison: Data and Analysis Code"
+abstract: >-
+  Raw per-trial localization and quality-rating data from a listening experiment
+  comparing five rendering approaches (one 3DoF baseline and four 6DoF methods)
+  for navigable playback of a multi-point higher-order Ambisonics orchestral scene
+  in virtual reality, with the R Markdown analysis that generates every statistic,
+  figure and LaTeX value reported in the accompanying paper. 36 listeners were
+  tested at two sites; 35 are analyzed for localization and 34 for ratings.
+authors:
+  - family-names: "Mróz"
+    given-names: "Bartłomiej"
+    orcid: "https://orcid.org/0000-0002-8983-9050"
+    affiliation: "Gdańsk University of Technology, Department of Multimedia Systems"
+license: CC-BY-4.0
+repository-code: "https://github.com/mormegil6/6dof-rendering-comparison"
+repository: "https://git.pg.edu.pl/p829296/6dof-rendering-comparison"
+keywords:
+  - six degrees of freedom
+  - 6DoF audio
+  - higher-order Ambisonics
+  - virtual reality
+  - binaural rendering
+  - sound localization
+  - listening test
+  - MUSHRA
+preferred-citation:
+  type: article
+  title: "Walking Through a Virtual Orchestra: Localization–Quality Trade-offs in Six-Degrees-of-Freedom Audio Rendering for Virtual Reality"
+  authors:
+    - family-names: "Mróz"
+      given-names: "Bartłomiej"
+      orcid: "https://orcid.org/0000-0002-8983-9050"
+  journal: "IEEE Transactions on Visualization and Computer Graphics"
+  status: submitted

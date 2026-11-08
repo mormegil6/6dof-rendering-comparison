@@ -23,6 +23,7 @@ supporting all reported statistics, figures, and tables in the paper.
 │   ├── analysis_report.md      # Pre-rendered results (readable without running R)
 │   └── latex_values.tex        # Auto-generated LaTeX macros for the paper
 ├── plots/                      # Figure files (PNG), generated on knit
+├── CITATION.cff                # Citation metadata (also read by GitHub and Zenodo)
 ├── LICENSE
 └── README.md
 ```
