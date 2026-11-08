@@ -1,11 +1,13 @@
-[![R](https://img.shields.io/badge/R-4.4.1-blue.svg)]() [![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]() [![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]() [![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]() [![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]() [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.24054143-blue.svg)](https://doi.org/10.5281/zenodo.24054143) [![R](https://img.shields.io/badge/R-4.4.1-blue.svg)]() [![glmmTMB](https://img.shields.io/badge/glmmTMB-1.1-blue.svg)]() [![nlme](https://img.shields.io/badge/nlme-3.1-blue.svg)]() [![emmeans](https://img.shields.io/badge/emmeans-2.0-blue.svg)]() [![DHARMa](https://img.shields.io/badge/DHARMa-0.4-blue.svg)]() [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 # 6DoF Rendering Comparison - Supplementary Materials
 
 Supplementary materials for the paper:
 
 ***"Walking Through a Virtual Orchestra: Localization–Quality Trade-offs in Six-Degrees-of-Freedom Audio Rendering for Virtual Reality"***  
-Bartłomiej Mróz · manuscript in preparation
+Bartłomiej Mróz · submitted to *IEEE Transactions on Visualization and Computer Graphics*
+
+Archived on Zenodo: the release used for the paper is v1.0.0, [doi:10.5281/zenodo.24054144](https://doi.org/10.5281/zenodo.24054144); the badge DOI always resolves to the latest version.
 
 This repository contains raw experimental data and reproducible analysis code
 supporting all reported statistics, figures, and tables in the paper.
