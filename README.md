@@ -5,7 +5,7 @@
 Supplementary materials for the paper:
 
 ***"Walking Through a Virtual Orchestra: Localization–Quality Trade-offs in Six-Degrees-of-Freedom Audio Rendering for Virtual Reality"***  
-Bartłomiej Mróz · submitted to *IEEE Transactions on Visualization and Computer Graphics*
+Bartłomiej Mróz · submitted to *IEEE Transactions on Visualization and Computer Graphics* (manuscript TVCG-2026-11-1423, 8 November 2026)
 
 Archived on Zenodo: the release used for the paper is v1.0.0, [doi:10.5281/zenodo.24054144](https://doi.org/10.5281/zenodo.24054144); the badge DOI always resolves to the latest version.
 
